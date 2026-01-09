@@ -9,6 +9,7 @@ import sys
 import os
 import numpy as np
 import torch
+from torch.utils.data import DataLoader
 from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass, asdict
 import time
@@ -18,7 +19,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 
 from config import Config, SystemConfig, DataConfig, ModelConfig, TrainingConfig, EvalConfig
 from experiments.probe_generators import get_probe_bank
-from data_generation import generate_dataset, create_dataloaders
+from data_generation import generate_limited_probing_dataset, LimitedProbingDataset
 from model import LimitedProbingMLP
 from training import train
 from evaluation import evaluate_model
@@ -163,18 +164,66 @@ def run_single_experiment(config_dict: Dict[str, Any],
         # Generate dataset
         if verbose:
             print("[2/5] Generating dataset...")
-        dataset_train, dataset_val, dataset_test = generate_dataset(
-            config=config,
-            probe_bank=probe_bank
+        
+        # Generate datasets
+        train_data = generate_limited_probing_dataset(
+            probe_bank=probe_bank,
+            n_samples=config.data.n_train,
+            M=config.system.M,
+            system_config=config.system,
+            normalize=config.data.normalize_input,
+            seed=config.data.seed
+        )
+        
+        val_data = generate_limited_probing_dataset(
+            probe_bank=probe_bank,
+            n_samples=config.data.n_val,
+            M=config.system.M,
+            system_config=config.system,
+            normalize=config.data.normalize_input,
+            seed=config.data.seed + 1
+        )
+        
+        test_data = generate_limited_probing_dataset(
+            probe_bank=probe_bank,
+            n_samples=config.data.n_test,
+            M=config.system.M,
+            system_config=config.system,
+            normalize=config.data.normalize_input,
+            seed=config.data.seed + 2
         )
         
         # Create dataloaders
         if verbose:
             print("[3/5] Creating dataloaders...")
-        train_loader, val_loader, test_loader = create_dataloaders(
-            dataset_train, dataset_val, dataset_test,
-            batch_size=config.training.batch_size
+        
+        from data_generation import LimitedProbingDataset
+        
+        train_dataset = LimitedProbingDataset(
+            masked_powers=train_data['masked_powers'],
+            masks=train_data['masks'],
+            labels=train_data['labels'],
+            powers_full=train_data['powers_full'],
+            observed_indices=train_data['observed_indices']
         )
+        val_dataset = LimitedProbingDataset(
+            masked_powers=val_data['masked_powers'],
+            masks=val_data['masks'],
+            labels=val_data['labels'],
+            powers_full=val_data['powers_full'],
+            observed_indices=val_data['observed_indices']
+        )
+        test_dataset = LimitedProbingDataset(
+            masked_powers=test_data['masked_powers'],
+            masks=test_data['masks'],
+            labels=test_data['labels'],
+            powers_full=test_data['powers_full'],
+            observed_indices=test_data['observed_indices']
+        )
+        
+        train_loader = DataLoader(train_dataset, batch_size=config.training.batch_size, shuffle=True)
+        val_loader = DataLoader(val_dataset, batch_size=config.training.batch_size, shuffle=False)
+        test_loader = DataLoader(test_dataset, batch_size=config.training.batch_size, shuffle=False)
         
         # Create model
         if verbose:
@@ -187,25 +236,41 @@ def run_single_experiment(config_dict: Dict[str, Any],
         )
         
         # Train model
-        history = train(
+        # Create metadata dict required by train function
+        metadata = {
+            'probe_bank': probe_bank,
+            'train_data': train_data,
+            'val_data': val_data,
+            'train_powers_full': train_data['powers_full'],
+            'val_powers_full': val_data['powers_full'],
+            'train_observed_indices': train_data['observed_indices'],
+            'val_observed_indices': val_data['observed_indices'],
+            'train_labels': train_data['labels'],
+            'val_labels': val_data['labels'],
+            'N': config.system.N,
+            'K': config.system.K,
+            'M': config.system.M,
+        }
+        
+        trained_model, history = train(
             model=model,
             train_loader=train_loader,
             val_loader=val_loader,
             config=config,
-            probe_bank=probe_bank,
-            progress_callback=progress_callback,
-            verbose=verbose
+            metadata=metadata
         )
         
         # Evaluate model
         if verbose:
             print("[5/5] Evaluating model...")
         results = evaluate_model(
-            model=model,
+            model=trained_model,
             test_loader=test_loader,
-            probe_bank=probe_bank,
             config=config,
-            verbose=verbose
+            powers_full=test_data['powers_full'],
+            labels=test_data['labels'],
+            observed_indices=test_data['observed_indices'],
+            optimal_powers=test_data['optimal_powers']
         )
         
         execution_time = time.time() - start_time
@@ -219,7 +284,7 @@ def run_single_experiment(config_dict: Dict[str, Any],
             config=config_dict,
             evaluation=results,
             training_history=history,
-            model_state=model.state_dict(),
+            model_state=trained_model.state_dict(),
             execution_time=execution_time
         )
         
