@@ -1,0 +1,25 @@
+======================================================================
+Task B2: Top-m Selection Results
+======================================================================
+
+Configuration:
+  N (RIS elements): 32
+  K (probes): 64
+  M (sensing budget): 8
+  Seed: 42
+
+Top-m Performance:
+  Top-1: η = 0.5358, accuracy = 0.1080
+  Top-2: η = 0.5975, accuracy = 0.1293
+  Top-4: η = 0.6543, accuracy = 0.1637
+  Top-8: η = 0.7178, accuracy = 0.2180
+
+Baselines:
+  Best Observed: η = 0.6163
+  Random M/K: η = 0.6203
+  Random 1/K: η = 0.2434
+
+Key Observations:
+  - Top-1 achieves η = 0.5358
+  - Top-8 achieves η = 0.7178
+  - Improvement from top-1 to top-8: 34.0%

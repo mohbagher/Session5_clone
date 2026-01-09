@@ -1,0 +1,28 @@
+======================================================================
+Task A2: Hadamard Probes Results
+======================================================================
+
+Configuration:
+  N (RIS elements): 32
+  K (probes): 64
+  Seed: 42
+
+Hadamard Probe Diversity Metrics:
+  metric_type: hamming_distance
+  mean: 0.49206349206349204
+  std: 0.062492125984220714
+  min: 0.0
+  max: 0.5
+  median: 0.5
+
+Random Binary Probe Diversity Metrics (for comparison):
+  metric_type: hamming_distance
+  mean: 0.5018446180555556
+  std: 0.08656084718239235
+  min: 0.1875
+  max: 0.78125
+  median: 0.5
+
+Observations:
+  Hadamard probes provide structured patterns with controlled diversity.
+  Mean Hamming distance: Hadamard=0.4921, Binary=0.5018

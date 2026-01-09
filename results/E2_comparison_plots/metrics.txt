@@ -1,0 +1,2 @@
+Task E2: Comparison Plots (Placeholder)
+Configuration: N=32, K=64, M=8

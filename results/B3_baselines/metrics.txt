@@ -1,0 +1,16 @@
+======================================================================
+Task B3: Baseline Comparison Results
+======================================================================
+
+Configuration: N=32, K=64, M=8, Seed=42
+
+Performance (η):
+  Random 1/K: 0.2434
+  Random 8/64: 0.6203
+  Best Observed: 0.6163
+  ML Top-1: 0.5365
+
+ML Improvement over Baselines:
+  vs Random 1/K: +120.4%
+  vs Random 8/64: +-13.5%
+  vs Best Observed: +-13.0%

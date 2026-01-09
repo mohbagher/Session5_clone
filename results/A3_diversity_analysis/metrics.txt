@@ -1,0 +1,21 @@
+======================================================================
+Task A3: Probe Diversity Analysis Results
+======================================================================
+
+Configuration:
+  N (RIS elements): 8
+  K (probes): 16
+  Seed: 42
+
+Diversity Metrics for All Probe Types:
+Probe Type            Metric   Mean    Std    Min    Max Median
+Continuous cosine_similarity 0.2963 0.1476 0.0147 0.7463 0.2881
+    Binary  hamming_distance 0.4896 0.1594 0.1250 0.8750 0.5000
+      2bit  hamming_distance 0.7448 0.1429 0.3750 1.0000 0.7500
+  Hadamard  hamming_distance 0.4667 0.1247 0.0000 0.5000 0.5000
+
+Key Observations:
+  - Continuous probes show variable similarity due to random phases
+  - Binary probes have discrete phase values, leading to specific distance patterns
+  - 2-bit probes offer more resolution than binary while maintaining structure
+  - Hadamard probes provide structured patterns with controlled diversity

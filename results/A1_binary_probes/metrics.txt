@@ -1,0 +1,28 @@
+======================================================================
+Task A1: Binary Probe Generation Results
+======================================================================
+
+Configuration:
+  N (RIS elements): 32
+  K (probes): 64
+  Seed: 42
+
+Binary Probe Diversity Metrics:
+  metric_type: hamming_distance
+  mean: 0.5018446180555556
+  std: 0.08656084718239235
+  min: 0.1875
+  max: 0.78125
+  median: 0.5
+
+Continuous Probe Diversity Metrics (for comparison):
+  metric_type: cosine_similarity
+  mean: 0.15546186175896942
+  std: 0.08309369552902929
+  min: 0.00624369127773697
+  max: 0.48109053806751445
+  median: 0.1429534294101105
+
+Phase Statistics:
+  Binary phases unique values: 2
+  Binary phases: 0 count = 1041, π count = 1007

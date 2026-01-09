@@ -1,0 +1,24 @@
+======================================================================
+Task A4: Sobol Probes Results
+======================================================================
+
+Configuration:
+  N (RIS elements): 32
+  K (probes): 64
+  Seed: 42
+
+Sobol Probe Diversity Metrics:
+  metric_type: hamming_distance
+  mean: 1.0
+  std: 0.0
+  min: 1.0
+  max: 1.0
+  median: 1.0
+
+Continuous Probe Diversity Metrics (for comparison):
+  metric_type: cosine_similarity
+  mean: 0.15546186175896942
+  std: 0.08309369552902929
+  min: 0.00624369127773697
+  max: 0.48109053806751445
+  median: 0.1429534294101105

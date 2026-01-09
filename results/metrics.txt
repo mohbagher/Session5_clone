@@ -1,0 +1,28 @@
+======================================================================
+RIS PROBE-BASED CONTROL - LIMITED PROBING RESULTS
+======================================================================
+
+Configuration:
+  N (RIS elements):    32
+  K (total probes):    64
+  M (sensing budget):  8
+  M/K ratio:           12.50%
+  Training samples:    50000
+  Architecture:        [512, 256, 128]
+
+Results:
+  accuracy_top1: 0.1110
+  accuracy_top2: 0.1298
+  accuracy_top4: 0.1592
+  accuracy_top8: 0.2168
+  eta_top1: 0.5599483251571655
+  eta_top2: 0.6082391142845154
+  eta_top4: 0.658101499080658
+  eta_top8: 0.7210755944252014
+  eta_random_1: 0.24097026884555817
+  eta_random_M: 0.6190669536590576
+  eta_best_observed: 0.6172346472740173
+  eta_oracle: 1.0000
+  eta_vs_theoretical: 0.2163173109292984
+  M: 8
+  K: 64

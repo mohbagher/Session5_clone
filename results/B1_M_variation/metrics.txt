@@ -1,0 +1,31 @@
+======================================================================
+Task B1: M Variation Study Results
+======================================================================
+
+Configuration:
+  N (RIS elements): 32
+  K (probes): 64
+  M values tested: [2, 4, 8, 16, 32]
+  Probe types: ['continuous', 'binary']
+  Seed: 42
+
+Results (η_top1 for each M):
+
+Continuous Probes:
+  M= 2 ( 3.1%): η = 0.2507
+  M= 4 ( 6.2%): η = 0.3493
+  M= 8 (12.5%): η = 0.4922
+  M=16 (25.0%): η = 0.6823
+  M=32 (50.0%): η = 0.8174
+
+Binary Probes:
+  M= 2 ( 3.1%): η = 0.2540
+  M= 4 ( 6.2%): η = 0.3437
+  M= 8 (12.5%): η = 0.5076
+  M=16 (25.0%): η = 0.6778
+  M=32 (50.0%): η = 0.8175
+
+Key Observations:
+  - Performance (η) generally increases with larger sensing budget M
+  - Diminishing returns observed as M approaches K
+  - Trade-off between measurement overhead (M) and performance (η)
