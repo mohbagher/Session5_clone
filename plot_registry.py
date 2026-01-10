@@ -128,19 +128,24 @@ def plot_correlation_matrix(probe_bank, save_path: Optional[str] = None):
     plt.show()
 
 
-# Plot Registry
-PLOT_REGISTRY: Dict[str, Callable] = {
-    "training_curves": plot_training_history,
-    "eta_distribution": plot_eta_distribution,
-    "top_m_comparison": plot_top_m_comparison,
-    "baseline_comparison": plot_baseline_comparison,
-    "cdf": plot_cdf,
-    "violin": plot_violin,
-    "heatmap": plot_heatmap,
-    "scatter": plot_scatter_comparison,
-    "box": plot_box_comparison,
-    "correlation_matrix": plot_correlation_matrix,
-}
+# Import extended plots from dashboard (if available)
+try:
+    from dashboard.plots import EXTENDED_PLOT_REGISTRY
+    PLOT_REGISTRY = EXTENDED_PLOT_REGISTRY.copy()
+except ImportError:
+    # Fallback to basic plots
+    PLOT_REGISTRY: Dict[str, Callable] = {
+        "training_curves": plot_training_history,
+        "eta_distribution": plot_eta_distribution,
+        "top_m_comparison": plot_top_m_comparison,
+        "baseline_comparison": plot_baseline_comparison,
+        "cdf": plot_cdf,
+        "violin": plot_violin,
+        "heatmap": plot_heatmap,
+        "scatter": plot_scatter_comparison,
+        "box": plot_box_comparison,
+        "correlation_matrix": plot_correlation_matrix,
+    }
 
 
 def register_plot(name: str, plot_function: Callable) -> None:
