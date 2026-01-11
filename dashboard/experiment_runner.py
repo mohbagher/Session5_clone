@@ -252,12 +252,14 @@ def run_single_experiment(config_dict: Dict[str, Any],
             'M': config.system.M,
         }
         
+        # UPDATE THIS CALL
         trained_model, history = train(
             model=model,
             train_loader=train_loader,
             val_loader=val_loader,
             config=config,
-            metadata=metadata
+            metadata=metadata,
+            progress_callback=progress_callback  # <--- ADD THIS LINE
         )
         
         # Evaluate model
