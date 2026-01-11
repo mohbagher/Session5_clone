@@ -1,275 +1,137 @@
 """
 Dashboard Callbacks for RIS PhD Ultimate Dashboard.
-
-Event handlers for widget interactions and dynamic UI updates.
 """
-
 import ipywidgets as widgets
-import sys
-import os
+import sys, os, time, json, torch
+import matplotlib.pyplot as plt
+import pandas as pd
+import numpy as np
 
-# Add parent directory to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
 from model_registry import get_model_architecture
+from dashboard.config_manager import config_to_dict, save_config
+from dashboard.validators import get_validation_errors
+from dashboard.experiment_runner import run_single_experiment, run_multi_model_comparison, run_multi_seed_experiment, aggregate_results
+from dashboard.plots import EXTENDED_PLOT_REGISTRY, set_plot_style
 
+CURRENT_RESULTS = None
 
-def on_phase_mode_change(change, widgets_dict):
-    """Enable/disable phase_bits based on phase_mode selection."""
-    phase_bits_widget = widgets_dict['phase_bits']
-    if change['new'] == 'discrete':
-        phase_bits_widget.disabled = False
-    else:
-        phase_bits_widget.disabled = True
+# UI LOGIC
+def on_phase_mode_change(change, wd): wd['phase_bits'].disabled = (change['new'] != 'discrete')
+def on_K_change(change, wd): 
+    wd['M'].max = change['new']
+    if wd['M'].value > change['new']: wd['M'].value = change['new']
+    update_param_count_preview(wd)
+def on_M_change(change, wd): 
+    if change['new'] > wd['K'].value: wd['M'].value = wd['K'].value
+def on_model_preset_change(change, wd):
+    is_c = (change['new'] == 'Custom')
+    wd['num_layers'].disabled = not is_c
+    if is_c: update_layer_size_widgets(wd['num_layers'].value, wd)
+    else: wd['layer_sizes_container'].children = []
+    update_param_count_preview(wd)
+def on_num_layers_change(change, wd): update_layer_size_widgets(change['new'], wd); update_param_count_preview(wd)
 
+# ADDED LOGIC FOR TAB 4
+def on_compare_models_change(change, wd): 
+    wd['models_to_compare'].disabled = not change['new']
+def on_multi_seed_change(change, wd): 
+    wd['num_seeds'].disabled = not change['new']
 
-def on_K_change(change, widgets_dict):
-    """Update M widget's max value when K changes."""
-    M_widget = widgets_dict['M']
-    new_K = change['new']
-    M_widget.max = new_K
-    # Ensure M doesn't exceed K
-    if M_widget.value > new_K:
-        M_widget.value = new_K
+def update_layer_size_widgets(n, wd):
+    layer_widgets = [widgets.IntText(value=max(32, 512 // (2**i)), description=f'L{i+1}:', layout=widgets.Layout(width='200px')) for i in range(n)]
+    for w in layer_widgets: w.observe(lambda c: update_param_count_preview(wd), names='value')
+    wd['layer_sizes_container'].children = layer_widgets
 
+def get_current_hidden_sizes(wd):
+    if wd['model_preset'].value == 'Custom': return [w.value for w in wd['layer_sizes_container'].children]
+    return get_model_architecture(wd['model_preset'].value)
 
-def on_M_change(change, widgets_dict):
-    """Validate that M <= K."""
-    M_value = change['new']
-    K_value = widgets_dict['K'].value
-    status_output = widgets_dict.get('status_output')
-    
-    if M_value > K_value:
-        if status_output:
-            with status_output:
-                print(f"⚠️ Warning: M ({M_value}) cannot exceed K ({K_value}). Adjusting M to {K_value}.")
-        widgets_dict['M'].value = K_value
-
-
-def on_model_preset_change(change, widgets_dict):
-    """Show/hide custom layer configuration when preset changes."""
-    num_layers_widget = widgets_dict['num_layers']
-    layer_sizes_container = widgets_dict['layer_sizes_container']
-    
-    if change['new'] == 'Custom':
-        num_layers_widget.disabled = False
-        # Create initial layer size inputs
-        update_layer_size_widgets(num_layers_widget.value, widgets_dict)
-    else:
-        num_layers_widget.disabled = True
-        layer_sizes_container.children = []
-    
-    # Update parameter count
-    update_param_count_preview(widgets_dict)
-
-
-def on_num_layers_change(change, widgets_dict):
-    """Update layer size input widgets when number of layers changes."""
-    num_layers = change['new']
-    update_layer_size_widgets(num_layers, widgets_dict)
-    update_param_count_preview(widgets_dict)
-
-
-def update_layer_size_widgets(num_layers, widgets_dict):
-    """Create/update layer size input widgets."""
-    layer_sizes_container = widgets_dict['layer_sizes_container']
-    
-    # Create widgets for each layer
-    layer_widgets = []
-    for i in range(num_layers):
-        default_size = max(32, 512 // (2 ** i))  # Decreasing sizes: 512, 256, 128, ...
-        widget = widgets.IntText(
-            value=default_size,
-            description=f'Layer {i+1} size:',
-            style={'description_width': '120px'},
-            layout=widgets.Layout(width='300px')
-        )
-        # Attach callback to update parameter count
-        widget.observe(lambda change: update_param_count_preview(widgets_dict), names='value')
-        layer_widgets.append(widget)
-    
-    layer_sizes_container.children = layer_widgets
-
-
-def get_current_hidden_sizes(widgets_dict):
-    """Extract current hidden layer sizes from widgets."""
-    preset = widgets_dict['model_preset'].value
-    
-    if preset == 'Custom':
-        layer_sizes_container = widgets_dict['layer_sizes_container']
-        hidden_sizes = []
-        for widget in layer_sizes_container.children:
-            if isinstance(widget, widgets.IntText):
-                hidden_sizes.append(widget.value)
-        return hidden_sizes
-    else:
-        try:
-            return get_model_architecture(preset)
-        except:
-            return [256, 128]  # Fallback
-
-
-def update_param_count_preview(widgets_dict):
-    """Calculate and display estimated number of parameters."""
+def update_param_count_preview(wd):
     try:
-        K = widgets_dict['K'].value
-        input_size = 2 * K
-        output_size = K
-        
-        hidden_sizes = get_current_hidden_sizes(widgets_dict)
-        
-        # Calculate parameters
-        total_params = 0
-        prev_size = input_size
-        
-        for hidden_size in hidden_sizes:
-            # Weights + biases
-            total_params += prev_size * hidden_size + hidden_size
-            prev_size = hidden_size
-        
-        # Output layer
-        total_params += prev_size * output_size + output_size
-        
-        # Display
-        param_display = widgets_dict['param_count_display']
-        param_display.value = f"<b>Estimated parameters:</b> {total_params:,} ({total_params/1e6:.2f}M)"
-        
-    except Exception as e:
-        param_display = widgets_dict['param_count_display']
-        param_display.value = f"<b>Estimated parameters:</b> Error - {str(e)}"
+        K = wd['K'].value; total = 0; prev = 2*K
+        for s in get_current_hidden_sizes(wd): total += prev*s + s; prev = s
+        total += prev*K + K
+        wd['param_count_display'].value = f"<b>Params:</b> {total:,}"
+    except: pass
 
+# EXPORT LOGIC
+def export_results_data(results, widgets_dict, fmt):
+    if results is None: return
+    out_dir = widgets_dict['output_dir'].value
+    os.makedirs(out_dir, exist_ok=True)
+    if isinstance(results, dict): rows = [{'Model': k, 'eta': v.evaluation.eta_top1, 'acc': v.evaluation.accuracy_top1} for k, v in results.items()]
+    else: rows = [{'Model': widgets_dict['model_preset'].value, 'eta': results.evaluation.eta_top1, 'acc': results.evaluation.accuracy_top1}]
+    df = pd.DataFrame(rows); ts = time.strftime('%Y%m%d_%H%M%S')
+    if fmt == 'csv': df.to_csv(os.path.join(out_dir, f"res_{ts}.csv"), index=False)
+    elif fmt == 'latex': df.to_latex(os.path.join(out_dir, f"res_{ts}.tex"), index=False)
+    elif fmt == 'json':
+        with open(os.path.join(out_dir, f"res_{ts}.json"), 'w') as f: json.dump(rows, f, indent=4)
+    with widgets_dict['status_output']: print(f"✅ Exported {fmt.upper()}")
 
-def on_compare_models_change(change, widgets_dict):
-    """Show/hide model selection when compare_multiple_models changes."""
-    models_to_compare_widget = widgets_dict['models_to_compare']
-    
-    if change['new']:
-        models_to_compare_widget.disabled = False
-    else:
-        models_to_compare_widget.disabled = True
-        models_to_compare_widget.value = []
+def save_ml_model(results, widgets_dict):
+    if results is None or isinstance(results, dict): return
+    out_dir = widgets_dict['output_dir'].value
+    os.makedirs(out_dir, exist_ok=True)
+    path = os.path.join(out_dir, f"model_{time.strftime('%Y%m%d_%H%M%S')}.pt")
+    torch.save(results.model_state, path)
+    with widgets_dict['status_output']: print(f"✅ Saved .pt")
 
+# HANDLERS
+def setup_experiment_handlers(wd):
+    def on_run(b):
+        global CURRENT_RESULTS
+        wd['status_output'].clear_output(); wd['results_summary'].value = "<i>Running...</i>"; wd['results_plots'].clear_output()
+        with wd['status_output']:
+            try:
+                config = config_to_dict(wd); valid, errs = get_validation_errors(config)
+                if not valid: print("❌ Errors:", *errs); return
+                def cb(e, t, m):
+                    wd['progress_bar'].value = int((e/t)*100)
+                    wd['live_metrics'].value = f"<b>Epoch {e}/{t}</b> | Loss: {m.get('val_loss',0):.4f} | η: {m.get('val_eta',0):.4f}"
+                if config.get('compare_multiple_models'): CURRENT_RESULTS = run_multi_model_comparison(config, list(config.get('models_to_compare')), cb)
+                else: CURRENT_RESULTS = run_single_experiment(config, cb)
+                update_results_display(wd, CURRENT_RESULTS)
+                print("✅ Done!")
+            except Exception as e: print(f"❌ Error: {e}")
+    wd['button_run_experiment'].on_click(on_run)
+    wd['button_save_config'].on_click(lambda b: save_config(config_to_dict(wd), f"configs/c_{time.strftime('%H%M%S')}.json"))
+    wd['button_export_csv'].on_click(lambda b: export_results_data(CURRENT_RESULTS, wd, 'csv'))
+    wd['button_export_json'].on_click(lambda b: export_results_data(CURRENT_RESULTS, wd, 'json'))
+    wd['button_export_latex'].on_click(lambda b: export_results_data(CURRENT_RESULTS, wd, 'latex'))
+    wd['button_save_model'].on_click(lambda b: save_ml_model(CURRENT_RESULTS, wd))
 
-def on_multi_seed_change(change, widgets_dict):
-    """Show/hide num_seeds when multi_seed_runs changes."""
-    num_seeds_widget = widgets_dict['num_seeds']
-    
-    if change['new']:
-        num_seeds_widget.disabled = False
-    else:
-        num_seeds_widget.disabled = True
+def update_results_display(wd, res):
+    if isinstance(res, dict):
+        summary = "<h3>Comparison</h3><table border='1'><tr><th>Model</th><th>η</th></tr>"
+        for k, v in res.items(): summary += f"<tr><td>{k}</td><td>{v.evaluation.eta_top1:.4f}</td></tr>"
+        wd['results_summary'].value = summary + "</table>"
+    else: wd['results_summary'].value = f"<h3>Results</h3><p>η: {res.evaluation.eta_top1:.4f}</p>"
+    with wd['results_plots']:
+        wd['results_plots'].clear_output(); set_plot_style(wd['color_palette'].value)
+        for p in wd['selected_plots'].value:
+            try:
+                if isinstance(res, dict):
+                    if p in ['top_m_comparison', 'baseline_comparison']: EXTENDED_PLOT_REGISTRY[p](res)
+                    continue
+                data = res.training_history if p == 'training_curves' else res.evaluation
+                EXTENDED_PLOT_REGISTRY[p](data); plt.show()
+            except Exception as e: print(f"Plot Error ({p}): {e}")
 
+def setup_all_callbacks(wd):
+    wd['phase_mode'].observe(lambda c: on_phase_mode_change(c, wd), names='value')
+    wd['K'].observe(lambda c: on_K_change(c, wd), names='value')
+    wd['M'].observe(lambda c: on_M_change(c, wd), names='value')
+    wd['model_preset'].observe(lambda c: on_model_preset_change(c, wd), names='value')
+    wd['num_layers'].observe(lambda c: on_num_layers_change(c, wd), names='value')
+    # ATTACH TAB 4 OBSERVERS
+    wd['compare_multiple_models'].observe(lambda c: on_compare_models_change(c, wd), names='value')
+    wd['multi_seed_runs'].observe(lambda c: on_multi_seed_change(c, wd), names='value')
+    update_param_count_preview(wd)
 
-def setup_all_callbacks(widgets_dict):
-    """
-    Attach all callbacks to widgets.
-    
-    Args:
-        widgets_dict: Dictionary of all widgets from get_all_widgets()
-    """
-    # Tab 1: System callbacks
-    widgets_dict['phase_mode'].observe(
-        lambda change: on_phase_mode_change(change, widgets_dict),
-        names='value'
-    )
-    
-    widgets_dict['K'].observe(
-        lambda change: on_K_change(change, widgets_dict),
-        names='value'
-    )
-    
-    widgets_dict['M'].observe(
-        lambda change: on_M_change(change, widgets_dict),
-        names='value'
-    )
-    
-    # Tab 2: Model callbacks
-    widgets_dict['model_preset'].observe(
-        lambda change: on_model_preset_change(change, widgets_dict),
-        names='value'
-    )
-    
-    widgets_dict['num_layers'].observe(
-        lambda change: on_num_layers_change(change, widgets_dict),
-        names='value'
-    )
-    
-    # Update parameter count on K change as well
-    widgets_dict['K'].observe(
-        lambda change: update_param_count_preview(widgets_dict),
-        names='value'
-    )
-    
-    # Tab 4: Evaluation callbacks
-    widgets_dict['compare_multiple_models'].observe(
-        lambda change: on_compare_models_change(change, widgets_dict),
-        names='value'
-    )
-    
-    widgets_dict['multi_seed_runs'].observe(
-        lambda change: on_multi_seed_change(change, widgets_dict),
-        names='value'
-    )
-    
-    # Initial parameter count calculation
-    update_param_count_preview(widgets_dict)
-
-
-def reset_to_defaults(widgets_dict):
-    """Reset all widgets to their default values."""
-    # Tab 1: System & Physics
-    widgets_dict['N'].value = 32
-    widgets_dict['K'].value = 64
-    widgets_dict['M'].value = 8
-    widgets_dict['P_tx'].value = 1.0
-    widgets_dict['sigma_h_sq'].value = 1.0
-    widgets_dict['sigma_g_sq'].value = 1.0
-    widgets_dict['phase_mode'].value = 'continuous'
-    widgets_dict['phase_bits'].value = 3
-    widgets_dict['probe_type'].value = 'continuous'
-    
-    # Tab 2: Model Architecture
-    widgets_dict['model_preset'].value = 'Baseline_MLP'
-    widgets_dict['num_layers'].value = 3
-    widgets_dict['dropout_prob'].value = 0.1
-    widgets_dict['use_batch_norm'].value = True
-    widgets_dict['activation_function'].value = 'ReLU'
-    widgets_dict['weight_init'].value = 'xavier_uniform'
-    
-    # Tab 3: Training Configuration
-    widgets_dict['n_train'].value = 50000
-    widgets_dict['n_val'].value = 5000
-    widgets_dict['n_test'].value = 5000
-    widgets_dict['seed'].value = 42
-    widgets_dict['normalize_input'].value = True
-    widgets_dict['normalization_type'].value = 'mean'
-    widgets_dict['batch_size'].value = 128
-    widgets_dict['learning_rate'].value = 1e-3
-    widgets_dict['weight_decay'].value = 1e-4
-    widgets_dict['n_epochs'].value = 50
-    widgets_dict['early_stop_patience'].value = 10
-    widgets_dict['optimizer'].value = 'Adam'
-    widgets_dict['scheduler'].value = 'ReduceLROnPlateau'
-    
-    # Tab 4: Evaluation & Comparison
-    widgets_dict['top_m_values'].value = [1, 2, 4, 8]
-    widgets_dict['compare_multiple_models'].value = False
-    widgets_dict['models_to_compare'].value = []
-    widgets_dict['multi_seed_runs'].value = False
-    widgets_dict['num_seeds'].value = 3
-    widgets_dict['compute_confidence_intervals'].value = False
-    
-    # Tab 5: Visualization
-    widgets_dict['selected_plots'].value = ['training_curves', 'eta_distribution', 'top_m_comparison']
-    widgets_dict['figure_format'].value = 'png'
-    widgets_dict['dpi'].value = 150
-    widgets_dict['color_palette'].value = 'viridis'
-    widgets_dict['save_plots'].value = True
-    widgets_dict['output_dir'].value = 'results/'
-    
-    # Clear status
-    status_output = widgets_dict.get('status_output')
-    if status_output:
-        status_output.clear_output()
-        with status_output:
-            print("✅ All settings reset to defaults.")
+def reset_to_defaults(wd):
+    wd['N'].value = 32; wd['K'].value = 64; wd['M'].value = 8; wd['phase_mode'].value = 'continuous'; wd['probe_type'].value = 'continuous'
+    wd['model_preset'].value = 'Baseline_MLP'; wd['dropout_prob'].value = 0.1; wd['use_batch_norm'].value = True
+    wd['n_train'].value = 50000; wd['learning_rate'].value = 1e-3; wd['n_epochs'].value = 50
+    wd['selected_plots'].value = ['training_curves', 'eta_distribution', 'top_m_comparison']
+    with wd['status_output']: wd['status_output'].clear_output(); print("✅ Reset")

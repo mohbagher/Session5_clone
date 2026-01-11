@@ -162,7 +162,8 @@ def train(model: nn.Module,
           train_loader: DataLoader,
           val_loader: DataLoader,
           config: Config,
-          metadata: Dict) -> Tuple[nn.Module, TrainingHistory]: 
+          metadata: Dict,
+          progress_callback=None) -> Tuple[nn.Module, TrainingHistory]:  # <--- ADDED param
     """Full training loop."""
     device = config.training.device
     model = model.to(device)
@@ -212,6 +213,15 @@ def train(model: nn.Module,
         
         scheduler.step(val_eta)
         new_lr = optimizer.param_groups[0]['lr']
+        # 2. ADD THIS BLOCK at the end of the loop to trigger the update
+        if progress_callback is not None:
+            metrics = {
+                'train_loss': train_loss,
+                'val_loss': val_loss,
+                'val_acc': val_acc,
+                'val_eta': val_eta
+            }
+            progress_callback(epoch + 1, config.training.n_epochs, metrics)
         if new_lr != current_lr: 
             print(f"  LR reduced:  {current_lr:.2e} -> {new_lr:.2e}")
         
