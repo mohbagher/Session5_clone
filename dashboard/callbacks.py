@@ -208,7 +208,7 @@ def update_results_display(wd, res):
                     elif p in ['heatmap', 'correlation_matrix']:
                         if hasattr(res, 'probe_bank'): EXTENDED_PLOT_REGISTRY[p](res.probe_bank)
                         else: print(f"⚠️ Skipping '{p}': Physical probe data not available.")
-                    elif p in ['eta_distribution', 'cdf', 'baseline_comparison', 'error_analysis']:
+                    elif p in ['eta_distribution', 'cdf', 'baseline_comparison', 'error_analysis', 'top_m_comparison']:
                         EXTENDED_PLOT_REGISTRY[p](res.evaluation)
                     elif p == 'power_distribution':
                         if hasattr(res, 'powers_full'): EXTENDED_PLOT_REGISTRY[p](res.powers_full)
