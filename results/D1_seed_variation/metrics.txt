@@ -1,2 +1,0 @@
-Task D1: Seed Variation (Placeholder)
-Configuration: N=32, K=64, M=8
