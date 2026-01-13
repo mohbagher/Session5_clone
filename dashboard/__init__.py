@@ -2,31 +2,45 @@
 RIS PhD Ultimate Dashboard - Minimalist Research Platform.
 
 A fully customizable Jupyter notebook dashboard for RIS probe-based ML research.
-Optimized for unified workflow and streamlined exports.
+Optimized for unified workflow, stacking, and tabbed analysis.
 """
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 __author__ = "RIS Research Team"
 
-# Import components from widgets.py (including new unified layout)
+# Import components from widgets.py
 from dashboard.widgets import (
     get_all_widgets,
     create_tab_layout,
     create_unified_dashboard,
     create_results_area,
+
+    # Action Buttons
     button_run_experiment,
     button_save_config,
     button_load_config,
     button_reset_defaults,
-    widget_status_output,
-    widget_progress_bar,
-    widget_live_metrics,
-    widget_results_summary,
-    widget_results_plots,
+
+    # Stack Buttons
+    button_add_to_stack,
+    button_clear_stack,
+    button_run_stack,
+
+    # Export Buttons
     button_export_csv,
     button_export_json,
     button_export_latex,
     button_save_model,
+
+    # Status Widgets
+    widget_status_output,
+    widget_progress_bar,
+    widget_live_metrics,
+
+    # Results Widgets (UPDATED for Tabbed Layout)
+    widget_results_summary,
+    widget_results_plots_training, # <--- New Name
+    widget_results_plots_analysis, # <--- New Name
 )
 
 # Import components from callbacks.py
@@ -62,32 +76,40 @@ __all__ = [
     # Version info
     '__version__',
     '__author__',
-    
+
     # Widgets & Layouts
     'get_all_widgets',
     'create_tab_layout',
     'create_unified_dashboard',
     'create_results_area',
+
+    # Buttons
     'button_run_experiment',
     'button_save_config',
     'button_load_config',
     'button_reset_defaults',
-    'widget_status_output',
-    'widget_progress_bar',
-    'widget_live_metrics',
-    'widget_results_summary',
-    'widget_results_plots',
+    'button_add_to_stack',
+    'button_clear_stack',
+    'button_run_stack',
     'button_export_csv',
     'button_export_json',
     'button_export_latex',
     'button_save_model',
-    
+
+    # Status & Results
+    'widget_status_output',
+    'widget_progress_bar',
+    'widget_live_metrics',
+    'widget_results_summary',
+    'widget_results_plots_training',
+    'widget_results_plots_analysis',
+
     # Callbacks & Handlers
     'setup_all_callbacks',
     'setup_experiment_handlers',
     'reset_to_defaults',
     'update_param_count_preview',
-    
+
     # Core Logic
     'get_validation_errors',
     'config_to_dict',
@@ -104,13 +126,13 @@ __all__ = [
 def print_welcome():
     """Print welcome message with system info."""
     print("╔══════════════════════════════════════════════════════════════════════╗")
-    print("║           RIS PhD Ultimate Research Dashboard (Minimalist)           ║")
+    print("║           RIS PhD Ultimate Research Dashboard (Stacking Ed.)         ║")
     print("║           Version: {}                                            ║".format(__version__))
     print("╚══════════════════════════════════════════════════════════════════════╝")
     print()
-    print("Available Features:")
-    print("  ✓ Unified Dashboard (Tabs + Buttons + Progress in one view)")
-    print("  ✓ Integrated Results Dashboard with Export Buttons")
-    print("  ✓ Export Formats: CSV, JSON, LaTeX, and PyTorch Model (.pt)")
-    print("  ✓ Multi-Model & Multi-Seed Analysis")
+    print("New Features:")
+    print("  ✓ Experiment Stacking & Queueing")
+    print("  ✓ Transfer Learning (Model Chaining)")
+    print("  ✓ Categorized Probes (Physics vs. Math)")
+    print("  ✓ Tabbed Results & Decoupled Plotting")
     print()
