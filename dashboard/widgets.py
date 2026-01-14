@@ -5,6 +5,7 @@ All new features integrated:
 - Plot-only mode buttons
 - Pause/Resume controls
 - File browser support
+- Learnable M Selection Support
 """
 import ipywidgets as widgets
 from typing import Dict
@@ -43,9 +44,27 @@ widget_probe_type = widgets.Dropdown(
 )
 
 # ============================================================================
-# TAB 2: MODEL ARCHITECTURE
+# TAB 2: MODEL ARCHITECTURE (Amended for Learnable M)
 # ============================================================================
-widget_model_preset = widgets.Dropdown(options=list_models() + ['Custom'], value='Baseline_MLP', description='Model preset:', style={'description_width': '180px'}, layout=widgets.Layout(width='500px'))
+model_options = [
+    '━━ Standard MLPs ━━',
+    'Baseline_MLP', 'Deep_MLP', 'Tiny_MLP', 'Wide_Deep',
+    '━━ Learnable M Selection ━━',
+    'LearnedTopK_MLP', 'Attention_MLP', 'Gumbel_MLP', 'RL_MLP',
+    '━━ Research Architectures ━━',
+    'ResNet_Style', 'Pyramid', 'Hourglass', 'PhD_Custom_1', 'PhD_Custom_2',
+    '━━ Custom ━━',
+    'Custom'
+]
+
+widget_model_preset = widgets.Dropdown(
+    options=model_options,
+    value='Baseline_MLP',
+    description='Model preset:',
+    style={'description_width': '180px'},
+    layout=widgets.Layout(width='500px')
+)
+
 widget_num_layers = widgets.IntSlider(value=3, min=1, max=10, step=1, description='Number of layers:', style={'description_width': '180px'}, layout=widgets.Layout(width='500px'), disabled=True)
 widget_layer_sizes_container = widgets.VBox([])
 widget_dropout_prob = widgets.FloatSlider(value=0.1, min=0.0, max=0.8, step=0.05, description='Dropout probability:', style={'description_width': '180px'}, layout=widgets.Layout(width='500px'))
@@ -132,7 +151,6 @@ button_save_stack = widgets.Button(description='💾 SAVE STACK', button_style='
 button_load_stack = widgets.Button(description='📂 LOAD STACK', button_style='warning', layout=widgets.Layout(width='130px'))
 button_run_stack = widgets.Button(description='🚀 RUN STACK', button_style='success', layout=widgets.Layout(width='100%', height='60px'))
 
-# NEW: Custom experiment naming
 widget_custom_exp_name = widgets.Text(
     value='',
     placeholder='Enter custom experiment name (optional)',
@@ -144,7 +162,6 @@ widget_custom_exp_name = widgets.Text(
 
 widget_stack_display = widgets.Select(options=[], description='Experiment Stack:', layout=widgets.Layout(width='100%', height='150px'))
 
-# NEW: Plot-only mode buttons
 button_plot_only = widgets.Button(
     description='🎨 PLOT ONLY',
     button_style='info',
@@ -166,7 +183,6 @@ button_save_results = widgets.Button(
     tooltip='Save current results for later plotting'
 )
 
-# NEW: Pause/Resume buttons
 button_pause_training = widgets.Button(
     description='⏸️ PAUSE',
     button_style='warning',
@@ -250,14 +266,12 @@ def get_all_widgets() -> Dict:
         'button_load_stack': button_load_stack,
         'button_run_stack': button_run_stack,
 
-        # NEW buttons
         'button_plot_only': button_plot_only,
         'button_load_results': button_load_results,
         'button_save_results': button_save_results,
         'button_pause_training': button_pause_training,
         'button_resume_training': button_resume_training,
 
-        # NEW widgets
         'custom_exp_name': widget_custom_exp_name,
         'stack_display': widget_stack_display,
 
@@ -316,7 +330,6 @@ def create_tab_layout():
         widget_compute_confidence_intervals
     ], layout=widgets.Layout(padding='20px'))
 
-    # NEW: Plot-only buttons in visualization tab
     t5 = widgets.VBox([
         widgets.HTML("<h3>Visualization Control</h3>"),
         widgets.HTML("<h4>Plot Mode:</h4>"),
@@ -342,10 +355,9 @@ def create_unified_dashboard():
     """Create unified dashboard with all new features."""
     tabs = create_tab_layout()
 
-    # Improved stack box with custom naming
     stack_box = widgets.VBox([
         widgets.HTML("<b>Experiment Stack:</b> Configure, name (optional), then add to stack."),
-        widget_custom_exp_name,  # NEW: Custom naming field
+        widget_custom_exp_name,
         widgets.HBox([
             button_add_to_stack,
             button_remove_from_stack,
