@@ -16,6 +16,8 @@ from dashboard.tabs import (
 from dashboard.components import (
     create_stack_manager,
     create_action_buttons,
+    create_results_buttons,
+    create_export_buttons,
     create_status_display,
     create_results_display
 )
@@ -65,6 +67,8 @@ def create_unified_dashboard():
 
     stack_manager = create_stack_manager()
     action_buttons = create_action_buttons()
+    results_buttons = create_results_buttons()
+    export_buttons = create_export_buttons()
     status_display = create_status_display()
 
     # ========================================================================
@@ -75,6 +79,8 @@ def create_unified_dashboard():
         tabs,                    # Parameter tabs at top
         stack_manager,           # Stack manager below tabs
         action_buttons,          # Main action buttons
+        results_buttons,         # Results management buttons
+        export_buttons,          # Export buttons
         status_display           # Progress and logs
     ])
 
@@ -95,6 +101,8 @@ def create_unified_dashboard():
     # Add component widgets
     widget_dict.update(stack_manager._widgets)
     widget_dict.update(action_buttons._widgets)
+    widget_dict.update(results_buttons._widgets)
+    widget_dict.update(export_buttons._widgets)
     widget_dict.update(status_display._widgets)
 
     return dashboard, widget_dict

@@ -1,500 +1,340 @@
 """
-Tab 2: Physics & Realism Configuration
-=======================================
-Channel sources, realism profiles, advanced impairment settings.
-
-Phase 2 Extensions:
-- MATLAB backend selection
-- Toolbox scenario selector
-- Advanced MATLAB parameters (CDL-RIS)
+System Configuration
+====================
+Core configuration classes for the RIS research platform.
 """
 
-import ipywidgets as widgets
+from dataclasses import dataclass, field
+from typing import Optional, List
+import torch
+import logging
+
+logger = logging.getLogger(__name__)
 
 
-def create_physics_tab():
-    """Create Physics & Realism tab with Phase 2 MATLAB integration."""
+@dataclass
+class SystemConfig:
+    """System-level configuration."""
+    device: str = 'cuda' if torch.cuda.is_available() else 'cpu'
+    seed: int = 42
+    num_workers: int = 4
+    pin_memory: bool = True
+    log_level: str = 'INFO'
 
-    # ========================================================================
-    # PHASE 1: Channel Source (kept for backward compatibility)
-    # ========================================================================
+    def __post_init__(self):
+        """Validate configuration."""
+        if self.device == 'cuda' and not torch.cuda.is_available():
+            logger.warning("CUDA requested but not available, using CPU")
+            self.device = 'cpu'
 
-    widget_channel_source = widgets.Dropdown(
-        options=[
-            ('Python Synthetic (Built-in)', 'python_synthetic'),
-            ('MATLAB Engine (Phase 2)', 'matlab_engine'),
-            ('MATLAB Verified Data (Phase 2)', 'matlab_verified')
-        ],
-        value='python_synthetic',
-        description='Channel Source:',
-        style={'description_width': '180px'},
-        layout=widgets.Layout(width='600px'),
-        tooltip='Select physics simulation backend'
-    )
 
-    # Source info display
-    widget_source_info = widgets.HTML(
-        value=(
-            "<div style='margin-left: 190px; padding: 10px; background: #e3f2fd; border-left: 3px solid #2196f3;'>"
-            "<b>Python Synthetic</b><br>"
-            "Built-in numpy-based Rayleigh fading<br>"
-            "[OK] Analytically verified<br>"
-            "[OK] Fast and reliable"
-            "</div>"
-        ),
-        layout=widgets.Layout(width='600px')
-    )
+@dataclass
+class DataConfig:
+    """Data generation and loading configuration."""
+    # Data generation
+    num_samples: int = 10000
+    M_values: List[int] = field(default_factory=lambda: [4, 8, 16, 32])
+    N: int = 64
+    K: int = 4
 
-    def update_source_info(change):
-        source = change['new']
+    # Data loading
+    batch_size: int = 128
+    train_split: float = 0.7
+    val_split: float = 0.15
+    test_split: float = 0.15
 
-        if source == 'python_synthetic':
-            info = (
-                "<div style='margin-left: 190px; padding: 10px; background: #e3f2fd; border-left: 3px solid #2196f3;'>"
-                "<b>Python Synthetic</b><br>"
-                "Built-in numpy-based Rayleigh fading<br>"
-                "[OK] Analytically verified<br>"
-                "[OK] Fast and reliable"
-                "</div>"
-            )
-        elif source == 'matlab_engine':
-            info = (
-                "<div style='margin-left: 190px; padding: 10px; background: #c8e6c9; border-left: 3px solid #4caf50;'>"
-                "<b>MATLAB Engine (Phase 2 Active)</b><br>"
-                "Live MATLAB channel generation<br>"
-                "[OK] MathWorks verified toolboxes<br>"
-                "[OK] Configure below in Backend Selection"
-                "</div>"
-            )
-        else:
-            info = (
-                "<div style='margin-left: 190px; padding: 10px; background: #fff3e0; border-left: 3px solid #ff9800;'>"
-                "<b>MATLAB Verified Data (Not Implemented)</b><br>"
-                "Load pre-verified .mat files<br>"
-                "[WARN] Requires pre-generated data<br>"
-                "[WARN] Coming in Phase 2.2"
-                "</div>"
-            )
+    # Dataset options
+    shuffle: bool = True
+    normalize: bool = True
 
-        widget_source_info.value = info
+    def __post_init__(self):
+        """Validate configuration."""
+        assert self.train_split + self.val_split + self.test_split == 1.0, \
+            "Data splits must sum to 1.0"
+        assert all(m > 0 for m in self.M_values), "M values must be positive"
+        assert self.N > 0 and self.K > 0, "N and K must be positive"
 
-    widget_channel_source.observe(update_source_info, 'value')
 
-    # ========================================================================
-    # PHASE 2: BACKEND SELECTION (NEW)
-    # ========================================================================
+@dataclass
+class ModelConfig:
+    """Model architecture configuration."""
+    model_name: str = 'Baseline_MLP'
+    hidden_layers: List[int] = field(default_factory=lambda: [512, 256, 128])
+    activation: str = 'relu'
+    dropout: float = 0.1
+    use_batch_norm: bool = True
 
-    widget_physics_backend = widgets.Dropdown(
-        options=[
-            ('Python (Default)', 'python'),
-            ('MATLAB Engine (Verified Toolboxes)', 'matlab')
-        ],
-        value='python',
-        description='Physics Backend:',
-        style={'description_width': '180px'},
-        layout=widgets.Layout(width='600px'),
-        tooltip='Select computational backend for channel generation'
-    )
+    # Attention-specific
+    num_heads: int = 4
 
-    # MATLAB scenario selector
-    widget_matlab_scenario = widgets.Dropdown(
-        options=[
-            ('Rayleigh Fading (Communications Toolbox)', 'rayleigh_basic'),
-            ('CDL-RIS Channel (5G Toolbox)', 'cdl_ris'),
-            ('Rician LOS (Communications Toolbox)', 'rician_los'),
-            ('TDL Urban (5G Toolbox)', 'tdl_urban')
-        ],
-        value='rayleigh_basic',
-        description='MATLAB Scenario:',
-        style={'description_width': '180px'},
-        layout=widgets.Layout(width='600px'),
-        disabled=True,
-        tooltip='Select verified MathWorks scenario'
-    )
+    # Residual-specific
+    use_residual: bool = False
 
-    # MATLAB status indicator
-    widget_matlab_status = widgets.HTML(
-        value="<div style='padding: 10px; background: #e0e0e0;'>"
-              "<b>MATLAB Status:</b> Not selected (using Python)"
-              "</div>",
-        layout=widgets.Layout(width='600px', margin='10px 0')
-    )
+    def __post_init__(self):
+        """Validate configuration."""
+        assert self.dropout >= 0 and self.dropout < 1, "Dropout must be in [0, 1)"
+        assert len(self.hidden_layers) > 0, "Must have at least one hidden layer"
+        assert self.activation in ['relu', 'gelu', 'tanh', 'leaky_relu'], \
+            f"Unknown activation: {self.activation}"
 
-    # MATLAB toolbox info box
-    widget_matlab_toolbox_info = widgets.HTML(
-        value="",
-        layout=widgets.Layout(width='600px', min_height='80px', margin='10px 0')
-    )
 
-    # ========================================================================
-    # PHASE 2: Advanced MATLAB Parameters (CDL-RIS specific)
-    # ========================================================================
+@dataclass
+class TrainingConfig:
+    """Training loop configuration."""
+    # Optimization
+    optimizer: str = 'adam'
+    learning_rate: float = 1e-3
+    weight_decay: float = 1e-5
+    max_epochs: int = 100
 
-    widget_carrier_frequency = widgets.FloatText(
-        value=28e9,
-        description='Carrier Freq (Hz):',
-        style={'description_width': '180px'},
-        layout=widgets.Layout(width='600px'),
-        disabled=True,
-        tooltip='Carrier frequency for CDL channel'
-    )
+    # Learning rate scheduling
+    use_scheduler: bool = True
+    scheduler_type: str = 'reduce_on_plateau'
+    scheduler_patience: int = 10
+    scheduler_factor: float = 0.5
 
-    widget_delay_profile = widgets.Dropdown(
-        options=['CDL-A', 'CDL-B', 'CDL-C', 'CDL-D', 'CDL-E'],
-        value='CDL-C',
-        description='CDL Profile:',
-        style={'description_width': '180px'},
-        layout=widgets.Layout(width='600px'),
-        disabled=True,
-        tooltip='3GPP CDL delay profile'
-    )
+    # Early stopping
+    early_stopping: bool = True
+    early_stopping_patience: int = 20
+    early_stopping_min_delta: float = 1e-4
 
-    widget_doppler_shift = widgets.FloatText(
-        value=5,
-        description='Doppler (Hz):',
-        style={'description_width': '180px'},
-        layout=widgets.Layout(width='600px'),
-        disabled=True,
-        tooltip='Maximum Doppler shift'
-    )
+    # Loss function
+    loss_function: str = 'mse'
 
-    # Advanced parameters container
-    matlab_advanced_params = widgets.VBox([
-        widgets.HTML("<b>CDL-RIS Parameters:</b> (only for cdl_ris scenario)"),
-        widget_carrier_frequency,
-        widget_delay_profile,
-        widget_doppler_shift
-    ], layout=widgets.Layout(
-        border='1px solid #ddd',
-        padding='10px',
-        margin='10px 0',
-        display='none'  # Hidden by default
-    ))
+    # Logging
+    log_interval: int = 10
+    save_checkpoint: bool = True
+    checkpoint_interval: int = 10
 
-    # ========================================================================
-    # PHASE 2: Dynamic UI Updates
-    # ========================================================================
+    def __post_init__(self):
+        """Validate configuration."""
+        assert self.optimizer in ['adam', 'sgd', 'adamw'], \
+            f"Unknown optimizer: {self.optimizer}"
+        assert self.learning_rate > 0, "Learning rate must be positive"
+        assert self.max_epochs > 0, "Max epochs must be positive"
 
-    def update_backend_ui(change):
-        """Update UI when backend selection changes."""
-        backend = change['new']
 
-        if backend == 'matlab':
-            # Enable MATLAB controls
-            widget_matlab_scenario.disabled = False
+@dataclass
+class EvaluationConfig:
+    """Evaluation and metrics configuration."""
+    # Metrics to compute
+    compute_mse: bool = True
+    compute_mae: bool = True
+    compute_r2: bool = True
+    compute_capacity_gap: bool = True
 
-            # Check MATLAB status
-            try:
-                from physics.matlab_backend.session_manager import get_session_manager
-                session_mgr = get_session_manager()
+    # Evaluation options
+    eval_batch_size: int = 256
+    save_predictions: bool = False
 
-                if session_mgr.start_session():
-                    # Success
-                    widget_matlab_status.value = (
-                        "<div style='padding: 10px; background: #c8e6c9;'>"
-                        "<b>✓ MATLAB Status:</b> Connected and ready"
-                        "</div>"
-                    )
+    # Visualization
+    plot_predictions: bool = True
+    plot_training_curves: bool = True
+    plot_capacity_curves: bool = True
 
-                    # Get toolbox info
-                    from physics.matlab_backend.toolbox_registry import ToolboxManager
-                    toolbox_mgr = ToolboxManager(session_mgr.get_engine())
-                    available = toolbox_mgr.check_available_toolboxes()
 
-                    toolbox_html = "<div style='padding: 10px; background: #e3f2fd;'>"
-                    toolbox_html += "<b>Available Toolboxes:</b><br>"
-                    for name, avail in available.items():
-                        status = "✓" if avail else "✗"
-                        color = "green" if avail else "red"
-                        toolbox_html += f"<span style='color:{color};'>{status} {name.replace('_', ' ').title()}</span><br>"
-                    toolbox_html += "</div>"
+@dataclass
+class PhysicsConfig:
+    """Physics simulation configuration."""
+    # Channel model
+    channel_model: str = 'rayleigh'
+    snr_db: float = 20.0
 
-                    widget_matlab_toolbox_info.value = toolbox_html
+    # RIS parameters
+    phase_quantization_bits: int = 0  # 0 = continuous
+    amplitude_control: bool = False
+
+    # Beamforming
+    beamforming_method: str = 'matched_filter'
+
+    # Optimization (for future use)
+    optimization_method: str = 'gradient_descent'
+    max_iterations: int = 100
+    convergence_threshold: float = 1e-6
+
+    def __post_init__(self):
+        """Validate configuration."""
+        assert self.channel_model in ['rayleigh', 'rician', 'los'], \
+            f"Unknown channel model: {self.channel_model}"
+        assert self.phase_quantization_bits >= 0, \
+            "Phase quantization bits must be non-negative"
+
+
+@dataclass
+class ExperimentConfig:
+    """High-level experiment configuration."""
+    experiment_name: str = 'default_experiment'
+    experiment_type: str = 'single_model'  # or 'compare_models', 'sweep_params'
+
+    # Results
+    results_dir: str = 'results'
+    save_results: bool = True
+
+    # Reproducibility
+    deterministic: bool = True
+    benchmark: bool = False
+
+    def __post_init__(self):
+        """Validate configuration."""
+        assert self.experiment_type in ['single_model', 'compare_models', 'sweep_params'], \
+            f"Unknown experiment type: {self.experiment_type}"
+
+
+@dataclass
+class Config:
+    """
+    Complete system configuration.
+
+    This is the main configuration object that combines all sub-configs.
+    """
+    system: SystemConfig = field(default_factory=SystemConfig)
+    data: DataConfig = field(default_factory=DataConfig)
+    model: ModelConfig = field(default_factory=ModelConfig)
+    training: TrainingConfig = field(default_factory=TrainingConfig)
+    evaluation: EvaluationConfig = field(default_factory=EvaluationConfig)
+    physics: PhysicsConfig = field(default_factory=PhysicsConfig)
+    experiment: ExperimentConfig = field(default_factory=ExperimentConfig)
+
+    def __post_init__(self):
+        """Set up logging and validate all sub-configs."""
+        logging.basicConfig(
+            level=getattr(logging, self.system.log_level),
+            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        )
+
+        # Set random seeds
+        if self.experiment.deterministic:
+            torch.manual_seed(self.system.seed)
+            if torch.cuda.is_available():
+                torch.cuda.manual_seed_all(self.system.seed)
+                if self.experiment.benchmark:
+                    torch.backends.cudnn.benchmark = True
                 else:
-                    # Failed
-                    widget_matlab_status.value = (
-                        "<div style='padding: 10px; background: #ffcdd2;'>"
-                        "<b>✗ MATLAB Status:</b> Connection failed"
-                        "</div>"
-                    )
-                    widget_matlab_toolbox_info.value = (
-                        "<div style='padding: 10px; background: #fff3e0;'>"
-                        "<b>⚠ Error:</b> Could not start MATLAB Engine. "
-                        "Ensure MATLAB is installed and matlab.engine is configured."
-                        "</div>"
-                    )
-            except Exception as e:
-                widget_matlab_status.value = (
-                    "<div style='padding: 10px; background: #ffcdd2;'>"
-                    f"<b>✗ MATLAB Status:</b> Error - {str(e)}"
-                    "</div>"
-                )
-                widget_matlab_toolbox_info.value = (
-                    "<div style='padding: 10px; background: #fff3e0;'>"
-                    "<b>⚠ Note:</b> MATLAB Engine not available. Install with:<br>"
-                    "<code>cd /path/to/MATLAB/extern/engines/python && python setup.py install</code>"
-                    "</div>"
-                )
-        else:
-            # Python backend - disable MATLAB controls
-            widget_matlab_scenario.disabled = True
-            widget_matlab_status.value = (
-                "<div style='padding: 10px; background: #e0e0e0;'>"
-                "<b>MATLAB Status:</b> Not selected (using Python)"
-                "</div>"
-            )
-            widget_matlab_toolbox_info.value = ""
-            matlab_advanced_params.layout.display = 'none'
+                    torch.backends.cudnn.deterministic = True
 
-    def update_scenario_ui(change):
-        """Update UI when MATLAB scenario changes."""
-        scenario = change['new']
+    def summary(self) -> str:
+        """Get a summary of the configuration."""
+        lines = [
+            "=" * 70,
+            "CONFIGURATION SUMMARY",
+            "=" * 70,
+            "",
+            "System:",
+            f"  Device: {self.system.device}",
+            f"  Seed: {self.system.seed}",
+            "",
+            "Data:",
+            f"  Samples: {self.data.num_samples}",
+            f"  M values: {self.data.M_values}",
+            f"  N={self.data.N}, K={self.data.K}",
+            f"  Batch size: {self.data.batch_size}",
+            "",
+            "Model:",
+            f"  Architecture: {self.model.model_name}",
+            f"  Hidden layers: {self.model.hidden_layers}",
+            f"  Activation: {self.model.activation}",
+            "",
+            "Training:",
+            f"  Optimizer: {self.training.optimizer}",
+            f"  Learning rate: {self.training.learning_rate}",
+            f"  Max epochs: {self.training.max_epochs}",
+            f"  Early stopping: {self.training.early_stopping}",
+            "",
+            "Experiment:",
+            f"  Name: {self.experiment.experiment_name}",
+            f"  Type: {self.experiment.experiment_type}",
+            "=" * 70
+        ]
+        return "\n".join(lines)
 
-        # Show/hide advanced params based on scenario
-        if scenario == 'cdl_ris':
-            matlab_advanced_params.layout.display = 'block'
-            widget_carrier_frequency.disabled = False
-            widget_delay_profile.disabled = False
-            widget_doppler_shift.disabled = False
-        else:
-            matlab_advanced_params.layout.display = 'none'
-            widget_carrier_frequency.disabled = True
-            widget_delay_profile.disabled = True
-            widget_doppler_shift.disabled = True
 
-        # Update info box with scenario details
-        try:
-            from physics.matlab_backend.toolbox_registry import SCENARIO_TEMPLATES
-            template = SCENARIO_TEMPLATES.get(scenario)
+# =============================================================================
+# PRESET CONFIGURATIONS
+# =============================================================================
 
-            if template:
-                info_html = f"<div style='padding: 10px; background: #f3e5f5;'>"
-                info_html += f"<b>Scenario:</b> {template.name}<br>"
-                info_html += f"<b>Toolbox:</b> {template.toolbox.replace('_', ' ').title()}<br>"
-                info_html += f"<b>Description:</b> {template.description}<br>"
-                info_html += f"<b>Reference:</b> <a href='{template.reference}' target='_blank'>MathWorks Docs</a>"
-                info_html += "</div>"
+def get_quick_test_config() -> Config:
+    """Get configuration for quick testing."""
+    config = Config()
+    config.data.num_samples = 1000
+    config.data.M_values = [4, 8]
+    config.training.max_epochs = 10
+    config.experiment.experiment_name = 'quick_test'
+    return config
 
-                widget_matlab_toolbox_info.value = info_html
-        except:
-            pass
 
-    # Attach observers
-    widget_physics_backend.observe(update_backend_ui, 'value')
-    widget_matlab_scenario.observe(update_scenario_ui, 'value')
+def get_full_experiment_config() -> Config:
+    """Get configuration for full experiment."""
+    config = Config()
+    config.data.num_samples = 50000
+    config.data.M_values = [4, 8, 16, 32, 64]
+    config.training.max_epochs = 200
+    config.experiment.experiment_name = 'full_experiment'
+    return config
 
-    # ========================================================================
-    # PHASE 1: Realism Profile (unchanged)
-    # ========================================================================
 
-    widget_realism_profile = widgets.Dropdown(
-        options=[
-            ('Ideal (No Impairments)', 'ideal'),
-            ('Mild Impairments (Lab)', 'mild_impairments'),
-            ('Moderate Impairments (Indoor)', 'moderate_impairments'),
-            ('Severe Impairments (Outdoor)', 'severe_impairments'),
-            ('Worst Case (Stress Test)', 'worst_case')
-        ],
-        value='ideal',
-        description='Realism Profile:',
-        style={'description_width': '180px'},
-        layout=widgets.Layout(width='600px'),
-        tooltip='Select pre-configured impairment bundle'
-    )
+def get_phd_config() -> Config:
+    """Get configuration for PhD-level experiments."""
+    config = Config()
+    config.data.num_samples = 100000
+    config.data.M_values = [4, 8, 16, 32, 64, 128]
+    config.model.hidden_layers = [1024, 512, 256, 128]
+    config.training.max_epochs = 500
+    config.training.learning_rate = 5e-4
+    config.experiment.experiment_name = 'phd_experiment'
+    config.experiment.deterministic = True
+    return config
 
-    # Profile descriptions
-    profile_descriptions = {
-        'ideal': (
-            "<b>Ideal Conditions</b><br>"
-            "• Perfect CSI<br>"
-            "• Infinite precision hardware<br>"
-            "• No environmental effects<br>"
-            "<i>Use for: Theoretical upper bounds</i>"
-        ),
-        'mild_impairments': (
-            "<b>Mild Impairments</b><br>"
-            "• -30 dB CSI error (0.1%)<br>"
-            "• 5 Hz Doppler, 10ms delay<br>"
-            "• 6-bit phase shifters<br>"
-            "<i>Use for: High-quality lab equipment</i>"
-        ),
-        'moderate_impairments': (
-            "<b>Moderate Impairments</b><br>"
-            "• -20 dB CSI error (1%)<br>"
-            "• 10 Hz Doppler, 20ms delay<br>"
-            "• 4-bit phase shifters<br>"
-            "<i>Use for: Typical indoor deployment</i>"
-        ),
-        'severe_impairments': (
-            "<b>Severe Impairments</b><br>"
-            "• -15 dB CSI error (3%)<br>"
-            "• 50 Hz Doppler, 50ms delay<br>"
-            "• 3-bit phase shifters<br>"
-            "<i>Use for: Outdoor/vehicular scenarios</i>"
-        ),
-        'worst_case': (
-            "<b>Worst Case</b><br>"
-            "• -10 dB CSI error (10%)<br>"
-            "• 100 Hz Doppler, 100ms delay<br>"
-            "• 2-bit phase shifters<br>"
-            "<i>Use for: Robustness testing</i>"
-        )
-    }
 
-    widget_profile_info = widgets.HTML(
-        value=(
-            "<div style='margin-left: 190px; padding: 10px; background: #e8f5e9; border-left: 3px solid #4caf50;'>"
-            + profile_descriptions['ideal'] +
-            "</div>"
-        ),
-        layout=widgets.Layout(width='600px')
-    )
+# Add these lines at the END of your config/system_config.py file
+# (after the preset configuration functions)
 
-    def update_profile_info(change):
-        profile = change['new']
+# =============================================================================
+# BACKWARDS COMPATIBILITY ALIASES
+# =============================================================================
 
-        color_map = {
-            'ideal': ('#e8f5e9', '#4caf50'),
-            'mild_impairments': ('#fff9c4', '#fbc02d'),
-            'moderate_impairments': ('#ffe0b2', '#f57c00'),
-            'severe_impairments': ('#ffccbc', '#d84315'),
-            'worst_case': ('#f3e5f5', '#7b1fa2')
-        }
+# Alias for backwards compatibility
+EvalConfig = EvaluationConfig
 
-        bg_color, border_color = color_map.get(profile, ('#fff', '#999'))
+# =============================================================================
+# GLOBAL CONFIG MANAGEMENT
+# =============================================================================
 
-        widget_profile_info.value = (
-            f"<div style='margin-left: 190px; padding: 10px; background: {bg_color}; border-left: 3px solid {border_color};'>"
-            + profile_descriptions.get(profile, "Unknown profile") +
-            "</div>"
-        )
+_global_config: Config = None
 
-    widget_realism_profile.observe(update_profile_info, 'value')
 
-    # ========================================================================
-    # PHASE 1: Advanced Impairments (unchanged)
-    # ========================================================================
+def get_config() -> Config:
+    """
+    Get the global configuration instance.
 
-    widget_use_custom_impairments = widgets.Checkbox(
-        value=False,
-        description='Advanced: Use Custom Impairments',
-        style={'description_width': 'initial'},
-        layout=widgets.Layout(width='600px', margin='20px 0 10px 0')
-    )
+    Returns:
+        Global Config instance
 
-    widget_csi_error_db = widgets.FloatSlider(
-        value=-20, min=-40, max=-5, step=1,
-        description='CSI Error (dB):',
-        style={'description_width': '180px'},
-        layout=widgets.Layout(width='500px'),
-        disabled=True
-    )
+    Raises:
+        RuntimeError: If config has not been set
+    """
+    global _global_config
 
-    widget_doppler_hz = widgets.FloatSlider(
-        value=10, min=0, max=200, step=5,
-        description='Doppler (Hz):',
-        style={'description_width': '180px'},
-        layout=widgets.Layout(width='500px'),
-        disabled=True
-    )
+    if _global_config is None:
+        # Create default config if none exists
+        _global_config = Config()
 
-    widget_phase_bits_hw = widgets.IntSlider(
-        value=4, min=1, max=8, step=1,
-        description='Phase Shifter Bits:',
-        style={'description_width': '180px'},
-        layout=widgets.Layout(width='500px'),
-        disabled=True
-    )
+    return _global_config
 
-    widget_adc_bits = widgets.IntSlider(
-        value=10, min=6, max=16, step=1,
-        description='ADC Bits:',
-        style={'description_width': '180px'},
-        layout=widgets.Layout(width='500px'),
-        disabled=True
-    )
 
-    advanced_warning = widgets.HTML(
-        value=(
-            "<div style='margin: 10px 0 10px 190px; padding: 10px; background: #ffebee; border-left: 3px solid #f44336;'>"
-            "[WARNING] Modifying these settings will override the selected realism profile. "
-            "Custom configurations are logged separately."
-            "</div>"
-        ),
-        layout=widgets.Layout(width='600px')
-    )
+def set_config(config: Config) -> None:
+    """
+    Set the global configuration instance.
 
-    advanced_container = widgets.VBox([
-        advanced_warning,
-        widget_csi_error_db,
-        widget_doppler_hz,
-        widget_phase_bits_hw,
-        widget_adc_bits
-    ])
-    advanced_container.layout.display = 'none'
+    Args:
+        config: Config instance to set as global
+    """
+    global _global_config
+    _global_config = config
+    logger.info(f"Global config set: {config.experiment.experiment_name}")
 
-    def toggle_advanced(change):
-        is_custom = change['new']
-        advanced_container.layout.display = 'block' if is_custom else 'none'
-        widget_csi_error_db.disabled = not is_custom
-        widget_doppler_hz.disabled = not is_custom
-        widget_phase_bits_hw.disabled = not is_custom
-        widget_adc_bits.disabled = not is_custom
 
-    widget_use_custom_impairments.observe(toggle_advanced, 'value')
-
-    # ========================================================================
-    # FINAL LAYOUT
-    # ========================================================================
-
-    tab_layout = widgets.VBox([
-        widgets.HTML("<h3>Physics & Realism Configuration</h3>"),
-
-        widgets.HTML("<h4>Channel Source (Phase 1)</h4>"),
-        widget_channel_source,
-        widget_source_info,
-
-        widgets.HTML("<hr style='margin: 20px 0;'>"),
-        widgets.HTML("<h4>Backend Selection (Phase 2)</h4>"),
-        widget_physics_backend,
-        widget_matlab_status,
-        widget_matlab_scenario,
-        widget_matlab_toolbox_info,
-        matlab_advanced_params,
-
-        widgets.HTML("<hr style='margin: 20px 0;'>"),
-        widgets.HTML("<h4>Realism Profile</h4>"),
-        widget_realism_profile,
-        widget_profile_info,
-
-        widgets.HTML("<hr style='margin: 20px 0;'>"),
-        widget_use_custom_impairments,
-        advanced_container
-    ], layout=widgets.Layout(padding='20px'))
-
-    # ========================================================================
-    # Store widget references
-    # ========================================================================
-
-    tab_layout._widgets = {
-        # Phase 1 widgets
-        'channel_source': widget_channel_source,
-        'source_info': widget_source_info,
-        'realism_profile': widget_realism_profile,
-        'profile_info': widget_profile_info,
-        'use_custom_impairments': widget_use_custom_impairments,
-        'csi_error_db': widget_csi_error_db,
-        'doppler_hz': widget_doppler_hz,
-        'phase_bits_hw': widget_phase_bits_hw,
-        'adc_bits': widget_adc_bits,
-        # Phase 2 widgets (NEW)
-        'physics_backend': widget_physics_backend,
-        'matlab_scenario': widget_matlab_scenario,
-        'matlab_status': widget_matlab_status,
-        'matlab_toolbox_info': widget_matlab_toolbox_info,
-        'carrier_frequency': widget_carrier_frequency,
-        'delay_profile': widget_delay_profile,
-        'doppler_shift_matlab': widget_doppler_shift,
-    }
-
-    return tab_layout
+def reset_config() -> None:
+    """Reset global config to default."""
+    global _global_config
+    _global_config = Config()
+    logger.info("Global config reset to default")

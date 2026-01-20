@@ -766,10 +766,15 @@ def setup_experiment_handlers(wd):
     wd['button_resume_training'].on_click(lambda b: on_resume_training(b, wd))
 
     # Export
-    wd['button_export_csv'].on_click(lambda b: export_results_data(CURRENT_RESULTS, wd, 'csv'))
-    wd['button_export_json'].on_click(lambda b: export_results_data(CURRENT_RESULTS, wd, 'json'))
-    wd['button_export_latex'].on_click(lambda b: export_results_data(CURRENT_RESULTS, wd, 'latex'))
-    wd['button_save_model'].on_click(lambda b: save_ml_model(CURRENT_RESULTS, wd))
+    # NEW CODE (handles missing buttons):
+    if 'button_export_csv' in wd:
+        wd['button_export_csv'].on_click(lambda b: export_results_data(CURRENT_RESULTS, wd, 'csv'))
+    if 'button_export_json' in wd:
+        wd['button_export_json'].on_click(lambda b: export_results_data(CURRENT_RESULTS, wd, 'json'))
+    if 'button_export_latex' in wd:
+        wd['button_export_latex'].on_click(lambda b: export_results_data(CURRENT_RESULTS, wd, 'latex'))
+    if 'button_save_model' in wd:
+        wd['button_save_model'].on_click(lambda b: save_ml_model(CURRENT_RESULTS, wd))
 
     # Interactive plots (with debouncing)
     def safe_plot_update(change):
@@ -779,4 +784,3 @@ def setup_experiment_handlers(wd):
 
     wd['selected_plots'].observe(safe_plot_update, names='value')
     wd['color_palette'].observe(safe_plot_update, names='value')
-
