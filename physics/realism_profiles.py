@@ -1,133 +1,199 @@
 """
-Realism Profile Presets
-========================
-Pre-configured impairment bundles for different scenarios.
+Realism Profiles
+================
+Pre-configured bundles of impairments for different scenarios.
 """
 
-from typing import Dict
-from physics.impairments import *
+from physics.impairments import ImpairmentPipeline
+from typing import Dict, List
+import logging
 
+logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# PROFILE DEFINITIONS
+# ============================================================================
 
 REALISM_PROFILES = {
     'ideal': {
-        'name': 'Ideal (No Impairments)',
-        'description': 'Perfect CSI, infinite precision, no hardware limits',
-        'use_case': 'Theoretical upper bound, algorithm development',
-        'config': {
-            'csi_error': {'enabled': False},
-            'channel_aging': {'enabled': False},
-            'quantization': {'enabled': False},
-            'phase_quantization': {'enabled': False},
-            'amplitude_control': {'enabled': False},
-            'mutual_coupling': {'enabled': False}
-        }
+        'name': 'Ideal Conditions',
+        'description': 'No impairments - theoretical upper bound',
+        'impairments': []
     },
+
     'mild_impairments': {
-        'name': 'Mild Impairments',
-        'description': 'Good hardware, near-ideal conditions',
-        'use_case': 'High-quality RIS with controlled environment',
-        'config': {
-            'csi_error': {'enabled': True, 'error_variance_db': -30},
-            'channel_aging': {'enabled': True, 'doppler_hz': 5, 'feedback_delay_ms': 10},
-            'quantization': {'enabled': True, 'adc_bits': 14},
-            'phase_quantization': {'enabled': True, 'phase_bits': 6},
-            'amplitude_control': {'enabled': True, 'insertion_loss_db': 0.3, 'amplitude_variation_db': 0.1},
-            'mutual_coupling': {'enabled': True, 'coupling_strength': 0.05}
-        }
+        'name': 'Mild Impairments (Lab)',
+        'description': 'High-quality lab equipment',
+        'impairments': [
+            {
+                'type': 'csi_error',
+                'enabled': True,
+                'error_variance_db': -30
+            },
+            {
+                'type': 'channel_aging',
+                'enabled': True,
+                'doppler_hz': 5,
+                'feedback_delay_ms': 10
+            },
+            {
+                'type': 'phase_quantization',
+                'enabled': True,
+                'phase_bits': 6
+            }
+        ]
     },
+
     'moderate_impairments': {
-        'name': 'Moderate Impairments',
-        'description': 'Typical indoor RIS deployment',
-        'use_case': 'Realistic indoor scenario (office, home)',
-        'config': {
-            'csi_error': {'enabled': True, 'error_variance_db': -20},
-            'channel_aging': {'enabled': True, 'doppler_hz': 10, 'feedback_delay_ms': 20},
-            'quantization': {'enabled': True, 'adc_bits': 10},
-            'phase_quantization': {'enabled': True, 'phase_bits': 4},
-            'amplitude_control': {'enabled': True, 'insertion_loss_db': 0.5, 'amplitude_variation_db': 0.2},
-            'mutual_coupling': {'enabled': True, 'coupling_strength': 0.1}
-        }
+        'name': 'Moderate Impairments (Indoor)',
+        'description': 'Typical indoor deployment',
+        'impairments': [
+            {
+                'type': 'csi_error',
+                'enabled': True,
+                'error_variance_db': -20
+            },
+            {
+                'type': 'channel_aging',
+                'enabled': True,
+                'doppler_hz': 10,
+                'feedback_delay_ms': 20
+            },
+            {
+                'type': 'phase_quantization',
+                'enabled': True,
+                'phase_bits': 4
+            },
+            {
+                'type': 'quantization',
+                'enabled': True,
+                'adc_bits': 10
+            }
+        ]
     },
+
     'severe_impairments': {
-        'name': 'Severe Impairments',
-        'description': 'Challenging outdoor/mobile environment',
-        'use_case': 'Vehicular, high mobility, budget hardware',
-        'config': {
-            'csi_error': {'enabled': True, 'error_variance_db': -15},
-            'channel_aging': {'enabled': True, 'doppler_hz': 50, 'feedback_delay_ms': 50},
-            'quantization': {'enabled': True, 'adc_bits': 8},
-            'phase_quantization': {'enabled': True, 'phase_bits': 3},
-            'amplitude_control': {'enabled': True, 'insertion_loss_db': 1.0, 'amplitude_variation_db': 0.5},
-            'mutual_coupling': {'enabled': True, 'coupling_strength': 0.2}
-        }
+        'name': 'Severe Impairments (Outdoor)',
+        'description': 'Outdoor/vehicular scenarios',
+        'impairments': [
+            {
+                'type': 'csi_error',
+                'enabled': True,
+                'error_variance_db': -15
+            },
+            {
+                'type': 'channel_aging',
+                'enabled': True,
+                'doppler_hz': 50,
+                'feedback_delay_ms': 50
+            },
+            {
+                'type': 'phase_quantization',
+                'enabled': True,
+                'phase_bits': 3
+            },
+            {
+                'type': 'quantization',
+                'enabled': True,
+                'adc_bits': 8
+            }
+        ]
     },
+
     'worst_case': {
-        'name': 'Worst Case',
-        'description': 'Extreme conditions for robustness testing',
-        'use_case': 'Stress testing, reliability validation',
-        'config': {
-            'csi_error': {'enabled': True, 'error_variance_db': -10},
-            'channel_aging': {'enabled': True, 'doppler_hz': 100, 'feedback_delay_ms': 100},
-            'quantization': {'enabled': True, 'adc_bits': 6},
-            'phase_quantization': {'enabled': True, 'phase_bits': 2},
-            'amplitude_control': {'enabled': True, 'insertion_loss_db': 2.0, 'amplitude_variation_db': 1.0},
-            'mutual_coupling': {'enabled': True, 'coupling_strength': 0.3}
-        }
+        'name': 'Worst Case (Stress Test)',
+        'description': 'Robustness testing',
+        'impairments': [
+            {
+                'type': 'csi_error',
+                'enabled': True,
+                'error_variance_db': -10
+            },
+            {
+                'type': 'channel_aging',
+                'enabled': True,
+                'doppler_hz': 100,
+                'feedback_delay_ms': 100
+            },
+            {
+                'type': 'phase_quantization',
+                'enabled': True,
+                'phase_bits': 2
+            },
+            {
+                'type': 'quantization',
+                'enabled': True,
+                'adc_bits': 6
+            }
+        ]
     }
 }
 
 
-def get_profile(profile_name: str) -> Dict:
-    """Get realism profile configuration."""
+# ============================================================================
+# PUBLIC API
+# ============================================================================
+
+def list_profiles() -> List[str]:
+    """
+    List available realism profiles.
+
+    Returns:
+        List of profile names
+    """
+    return list(REALISM_PROFILES.keys())
+
+
+def create_pipeline_from_profile(profile_name: str) -> ImpairmentPipeline:
+    """
+    Create an impairment pipeline from a realism profile.
+
+    Args:
+        profile_name: Name of profile ('ideal', 'mild_impairments', etc.)
+
+    Returns:
+        ImpairmentPipeline configured with profile's impairments
+
+    Raises:
+        ValueError: If profile_name is unknown
+    """
+
     if profile_name not in REALISM_PROFILES:
-        raise ValueError(f"Unknown profile: {profile_name}. Available: {list(REALISM_PROFILES.keys())}")
-    return REALISM_PROFILES[profile_name]
+        raise ValueError(
+            f"Unknown profile: {profile_name}. "
+            f"Available profiles: {list(REALISM_PROFILES.keys())}"
+        )
+
+    profile = REALISM_PROFILES[profile_name]
+
+    pipeline = ImpairmentPipeline()
+
+    for impairment in profile['impairments']:
+        pipeline.add_block(impairment['type'], impairment)
+
+    logger.info(f"Created pipeline from profile: {profile_name}")
+
+    return pipeline
 
 
-def list_profiles() -> Dict[str, Dict]:
-    """List all available profiles with descriptions."""
-    return {name: {'name': prof['name'], 'description': prof['description'], 'use_case': prof['use_case']}
-            for name, prof in REALISM_PROFILES.items()}
+def create_custom_pipeline(impairment_configs: list) -> ImpairmentPipeline:
+    """
+    Create custom impairment pipeline from list of configs.
 
+    Args:
+        impairment_configs: List of dicts with 'type' and parameters
 
-def create_pipeline_from_profile(profile_name: str):
-    """Create ImpairmentPipeline from profile name."""
-    profile = get_profile(profile_name)
-    config = profile['config']
-    return ImpairmentPipeline(
-        csi_error=CSIEstimationError(**config['csi_error']),
-        channel_aging=ChannelAging(**config['channel_aging']),
-        quantization=QuantizationNoise(**config['quantization']),
-        phase_quantization=PhaseShifterQuantization(**config['phase_quantization']),
-        amplitude_control=AmplitudeControl(**config['amplitude_control']),
-        mutual_coupling=MutualCoupling(**config['mutual_coupling'])
-    )
+    Returns:
+        ImpairmentPipeline configured with custom impairments
+    """
 
+    pipeline = ImpairmentPipeline()
 
-def create_custom_pipeline(custom_config: Dict):
-    """Create ImpairmentPipeline from custom configuration."""
-    return ImpairmentPipeline(
-        csi_error=CSIEstimationError(**custom_config.get('csi_error', {'enabled': False})),
-        channel_aging=ChannelAging(**custom_config.get('channel_aging', {'enabled': False})),
-        quantization=QuantizationNoise(**custom_config.get('quantization', {'enabled': False})),
-        phase_quantization=PhaseShifterQuantization(**custom_config.get('phase_quantization', {'enabled': False})),
-        amplitude_control=AmplitudeControl(**custom_config.get('amplitude_control', {'enabled': False})),
-        mutual_coupling=MutualCoupling(**custom_config.get('mutual_coupling', {'enabled': False}))
-    )
+    for config in impairment_configs:
+        imp_type = config.get('type')
+        pipeline.add_block(imp_type, config)
 
+    logger.info(f"Created custom pipeline with {len(impairment_configs)} impairments")
 
-def compare_profiles() -> str:
-    """Generate comparison table of all profiles."""
-    output = "\n" + "="*80 + "\n"
-    output += "REALISM PROFILE COMPARISON\n"
-    output += "="*80 + "\n\n"
-    for name, profile in REALISM_PROFILES.items():
-        output += f"Profile: {profile['name']}\n"
-        output += f"  Description: {profile['description']}\n"
-        output += f"  Use Case: {profile['use_case']}\n"
-        cfg = profile['config']
-        output += f"    CSI Error: {cfg['csi_error']['error_variance_db'] if cfg['csi_error']['enabled'] else 'OFF'} dB\n"
-        output += f"    Doppler: {cfg['channel_aging']['doppler_hz'] if cfg['channel_aging']['enabled'] else 'OFF'} Hz\n"
-        output += f"    Phase Bits: {cfg['phase_quantization']['phase_bits'] if cfg['phase_quantization']['enabled'] else 'Infinite'}\n\n"
-    output += "="*80 + "\n"
-    return output
+    return pipeline

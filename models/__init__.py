@@ -1,14 +1,31 @@
 """
 Models Module
 =============
-Neural network architectures for RIS control.
+Neural network architectures for RIS beamforming.
 """
 
-from models.base_models import *
-from models.learnable_m_models import *
-from models.model_registry import list_models, get_model_class
+from models.base_models import (
+    BaselineMLPPredictor,
+    AttentionMLPPredictor,
+    ResidualMLPPredictor
+)
+
+from models.model_registry import (
+    get_model_class,
+    list_available_models,
+    register_model,
+    MODEL_REGISTRY
+)
 
 __all__ = [
-    'list_models',
-    'get_model_class'
+    # Model classes
+    'BaselineMLPPredictor',
+    'AttentionMLPPredictor',
+    'ResidualMLPPredictor',
+
+    # Registry functions
+    'get_model_class',
+    'list_available_models',
+    'register_model',
+    'MODEL_REGISTRY'
 ]

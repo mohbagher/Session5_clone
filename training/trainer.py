@@ -1,255 +1,163 @@
 """
-Training loop for RIS probe-based control with limited probing.
-
-Includes:
-- EarlyStopping: Prevents overfitting.
-- TrainingHistory: Tracks metrics for dashboard plotting.
-- Physics Engine Status: Logs data source (MATLAB vs Synthetic) to the dashboard.
+Model Training
+==============
+Training loop with validation and checkpointing.
 """
 
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader
-from typing import Dict, List, Tuple, Optional, Callable
+from torch.utils.data import DataLoader, TensorDataset
 import numpy as np
-import copy
+from typing import Dict, Optional, Any, Tuple
+import logging
+from pathlib import Path
 
-from config.system_config import Config
+from config import Config
 
-
-class EarlyStopping:
-    """Early stopping handler to restore the best model based on validation performance."""
-
-    def __init__(self, patience: int = 10, min_delta: float = 1e-4, mode: str = 'min'):
-        self.patience = patience
-        self.min_delta = min_delta
-        self.mode = mode
-        self.counter = 0
-        self.best_value = None
-        self.best_model_state = None
-        self.should_stop = False
-
-    def __call__(self, value: float, model: nn.Module) -> bool:
-        if self.best_value is None:
-            self.best_value = value
-            self.best_model_state = copy.deepcopy(model.state_dict())
-            return False
-
-        if self.mode == 'min':
-            improved = value < self.best_value - self.min_delta
-        else:
-            improved = value > self.best_value + self.min_delta
-
-        if improved:
-            self.best_value = value
-            self.best_model_state = copy.deepcopy(model.state_dict())
-            self.counter = 0
-        else:
-            self.counter += 1
-            if self.counter >= self.patience:
-                self.should_stop = True
-
-        return self.should_stop
-
-    def restore_best_model(self, model: nn.Module):
-        if self.best_model_state is not None:
-            model.load_state_dict(self.best_model_state)
+logger = logging.getLogger(__name__)
 
 
-class TrainingHistory:
-    """Track training metrics over epochs for visualization."""
+def train_model(
+    model: nn.Module,
+    train_data: Dict,
+    val_data: Dict,
+    batch_size: int = 128,
+    learning_rate: float = 1e-3,
+    n_epochs: int = 50,
+    device: str = 'cpu',
+    widget_dict: Optional[Dict] = None,
+    config: Optional[Config] = None
+) -> Tuple[nn.Module, Dict]:
+    """
+    Train model with validation.
 
-    def __init__(self):
-        self.train_loss: List[float] = []
-        self.val_loss: List[float] = []
-        self.train_acc: List[float] = []
-        self.val_acc: List[float] = []
-        self.val_eta: List[float] = []
-        self.learning_rates: List[float] = []
+    Args:
+        model: PyTorch model to train
+        train_data: Training dataset dict with 'Y' and 'Phi_opt'
+        val_data: Validation dataset dict
+        batch_size: Batch size
+        learning_rate: Learning rate
+        n_epochs: Number of epochs
+        device: Device to use
+        widget_dict: Dashboard widgets for updates
+        config: Configuration object
 
-    def add_epoch(self, train_loss: float, val_loss: float,
-                  train_acc: float, val_acc: float,
-                  val_eta: float, lr: float):
-        self.train_loss.append(train_loss)
-        self.val_loss.append(val_loss)
-        self.train_acc.append(train_acc)
-        self.val_acc.append(val_acc)
-        self.val_eta.append(val_eta)
-        self.learning_rates.append(lr)
+    Returns:
+        trained_model: Trained model
+        history: Training history
+    """
 
-    def to_dict(self) -> Dict:
-        return {
-            'train_loss': self.train_loss,
-            'val_loss': self.val_loss,
-            'train_acc': self.train_acc,
-            'val_acc': self.val_acc,
-            'val_eta': self.val_eta,
-            'learning_rates': self.learning_rates
-        }
-
-
-def train_one_epoch(model: nn.Module,
-                    train_loader: DataLoader,
-                    criterion: nn.Module,
-                    optimizer: optim.Optimizer,
-                    device: str) -> Tuple[float, float]:
-    """Perform training for a single epoch."""
-    model.train()
-    total_loss = 0.0
-    correct = 0
-    total = 0
-
-    for inputs, labels in train_loader:
-        inputs = inputs.to(device)
-        labels = labels.to(device)
-
-        optimizer.zero_grad()
-        logits = model(inputs)
-        loss = criterion(logits, labels)
-
-        loss.backward()
-        optimizer.step()
-
-        total_loss += loss.item() * inputs.size(0)
-        predictions = torch.argmax(logits, dim=1)
-        correct += (predictions == labels).sum().item()
-        total += inputs.size(0)
-
-    return total_loss / total, correct / total
-
-
-def validate(model: nn.Module,
-             val_loader: DataLoader,
-             criterion: nn.Module,
-             device: str,
-             powers_full: np.ndarray,
-             labels: np.ndarray) -> Tuple[float, float, float]:
-    """Validate model and compute the RIS efficiency metric (eta)."""
-    model.eval()
-    total_loss = 0.0
-    correct = 0
-    total = 0
-    all_predictions = []
-
-    with torch.no_grad():
-        for inputs, batch_labels in val_loader:
-            inputs = inputs.to(device)
-            batch_labels = batch_labels.to(device)
-
-            logits = model(inputs)
-            loss = criterion(logits, batch_labels)
-
-            total_loss += loss.item() * inputs.size(0)
-            predictions = torch.argmax(logits, dim=1)
-            correct += (predictions == batch_labels).sum().item()
-            total += inputs.size(0)
-            all_predictions.append(predictions.cpu().numpy())
-
-    avg_loss = total_loss / total
-    accuracy = correct / total
-
-    # Compute Beamforming Efficiency (eta)
-    all_predictions = np.concatenate(all_predictions)
-    eta_values = []
-    for i, pred in enumerate(all_predictions):
-        P_selected = powers_full[i, pred]
-        P_best = powers_full[i, labels[i]]
-        if P_best > 0:
-            eta_values.append(P_selected / P_best)
-    eta_top1 = np.mean(eta_values) if eta_values else 0.0
-
-    return avg_loss, accuracy, eta_top1
-
-
-def train(model: nn.Module,
-          train_loader: DataLoader,
-          val_loader: DataLoader,
-          config: Config,
-          metadata: Dict,
-          progress_callback: Optional[Callable] = None) -> Tuple[nn.Module, TrainingHistory]:
-    """Full end-to-end training loop with integrated status logging."""
-    device = config.training.device
+    # Move model to device
     model = model.to(device)
 
-    # --- PHYSICS ENGINE STATUS LOGGING ---
-    print("\n" + "="*70)
-    # Metadata presence check to verify data origin
-    if 'train_powers_full' in metadata and metadata.get('is_matlab', True):
-        sample_count = len(train_loader.dataset)
-        print(f"🚀 PHYSICS ENGINE: MATLAB Ground Truth Integrated")
-        print(f"📂 Source File: ris_channel_dataset.mat")
-        print(f"📊 Total Dataset Size: {sample_count} samples (N={config.system.N})")
-    else:
-        print(f"⚠️ PHYSICS ENGINE: Internal Synthetic (Rayleigh)")
-        print(f"📊 Total Dataset Size: {len(train_loader.dataset)} samples")
-    print("="*70)
-    # -------------------------------------
+    # Create dataloaders
+    train_loader = create_dataloader(train_data, batch_size, shuffle=True)
+    val_loader = create_dataloader(val_data, batch_size, shuffle=False)
 
-    criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(
-        model.parameters(),
-        lr=config.training.learning_rate,
-        weight_decay=config.training.weight_decay
-    )
+    # Loss and optimizer
+    criterion = nn.MSELoss()
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
+    # Learning rate scheduler
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode='max', factor=0.5, patience=5
+        optimizer, mode='min', patience=5, factor=0.5, verbose=True
     )
 
-    early_stopping = EarlyStopping(
-        patience=config.training.early_stop_patience,
-        mode='max'
-    )
+    # Training history
+    history = {
+        'train_loss': [],
+        'val_loss': [],
+        'learning_rate': []
+    }
 
-    history = TrainingHistory()
+    best_val_loss = float('inf')
+    patience_counter = 0
+    patience = 10
 
-    print(f"Starting training on {device}...")
-    print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
-    print(f"Sensing budget: M={config.system.M} out of K={config.system.K} probes")
-    print("-" * 70)
+    for epoch in range(n_epochs):
+        # Training phase
+        model.train()
+        train_loss = 0.0
 
-    for epoch in range(config.training.n_epochs):
-        train_loss, train_acc = train_one_epoch(
-            model, train_loader, criterion, optimizer, device
-        )
+        for batch_idx, (inputs, targets) in enumerate(train_loader):
+            inputs = inputs.to(device)
+            targets = targets.to(device)
 
-        val_loss, val_acc, val_eta = validate(
-            model, val_loader, criterion, device,
-            metadata['val_powers_full'],
-            metadata['val_labels']
-        )
+            # Forward pass
+            optimizer.zero_grad()
+            outputs = model(inputs)
+            loss = criterion(outputs, targets)
 
-        current_lr = optimizer.param_groups[0]['lr']
-        history.add_epoch(train_loss, val_loss, train_acc, val_acc, val_eta, current_lr)
+            # Backward pass
+            loss.backward()
+            optimizer.step()
 
-        # Periodic evaluation output
-        if (epoch + 1) % config.training.eval_interval == 0:
-            print(f"Epoch {epoch+1:3d}/{config.training.n_epochs} | "
-                  f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.4f} | "
-                  f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.4f} | "
-                  f"Val η: {val_eta:.4f}")
+            train_loss += loss.item()
 
-        # Dashboard progress update
-        if progress_callback is not None:
-            metrics = {
-                'train_loss': train_loss,
-                'val_loss': val_loss,
-                'val_acc': val_acc,
-                'val_eta': val_eta
-            }
-            progress_callback(epoch + 1, config.training.n_epochs, metrics)
+        train_loss /= len(train_loader)
 
-        scheduler.step(val_eta)
-        new_lr = optimizer.param_groups[0]['lr']
-        if new_lr != current_lr: 
-            print(f"  LR reduced:  {current_lr:.2e} -> {new_lr:.2e}")
-        
-        if early_stopping(val_eta, model):
-            print(f"\nEarly stopping triggered at epoch {epoch+1}")
-            break
-    
-    early_stopping.restore_best_model(model)
-    print(f"\nTraining complete. Best validation η: {early_stopping.best_value:.4f}")
-    
+        # Validation phase
+        model.eval()
+        val_loss = 0.0
+
+        with torch.no_grad():
+            for inputs, targets in val_loader:
+                inputs = inputs.to(device)
+                targets = targets.to(device)
+
+                outputs = model(inputs)
+                loss = criterion(outputs, targets)
+
+                val_loss += loss.item()
+
+        val_loss /= len(val_loader)
+
+        # Update scheduler
+        scheduler.step(val_loss)
+
+        # Record history
+        history['train_loss'].append(train_loss)
+        history['val_loss'].append(val_loss)
+        history['learning_rate'].append(optimizer.param_groups[0]['lr'])
+
+        # Log progress
+        log_message = f"Epoch [{epoch+1}/{n_epochs}] Train Loss: {train_loss:.6f}, Val Loss: {val_loss:.6f}"
+        logger.info(log_message)
+
+        if widget_dict and 'status_output' in widget_dict:
+            with widget_dict['status_output']:
+                print(log_message)
+
+        # Early stopping
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            patience_counter = 0
+            # Save best model (optional)
+        else:
+            patience_counter += 1
+            if patience_counter >= patience:
+                logger.info(f"Early stopping at epoch {epoch+1}")
+                break
+
     return model, history
+
+
+def create_dataloader(
+    data: Dict,
+    batch_size: int,
+    shuffle: bool = True
+) -> DataLoader:
+    """Create PyTorch DataLoader from data dict."""
+
+    Y = torch.FloatTensor(data['Y'])
+    Phi_opt = torch.FloatTensor(data['Phi_opt'])
+
+    dataset = TensorDataset(Y, Phi_opt)
+
+    return DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=shuffle,
+        num_workers=0  # Set to 0 for compatibility
+    )
