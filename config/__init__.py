@@ -1,7 +1,7 @@
 """
 Configuration Module
 ====================
-System configuration and parameter management.
+System-wide configuration management.
 """
 
 from config.system_config import (
@@ -11,7 +11,8 @@ from config.system_config import (
     TrainingConfig,
     EvalConfig,
     Config,
-    get_config
+    get_config,
+    set_config
 )
 
 __all__ = [
@@ -21,5 +22,6 @@ __all__ = [
     'TrainingConfig',
     'EvalConfig',
     'Config',
-    'get_config'
+    'get_config',
+    'set_config'
 ]

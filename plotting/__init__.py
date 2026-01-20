@@ -1,1 +1,1 @@
-"""\nplotting module\n"""\n
+"""\nplotting module\n"""

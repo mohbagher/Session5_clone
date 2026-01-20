@@ -1,50 +1,126 @@
 """
-Physics Module - Phase 1 Modular Realism Architecture
-=====================================================
+Physics Module
+==============
+Channel generation, impairments, and realism profiles.
 
-Provides:
-- Pluggable channel sources (Python, MATLAB interfaces)
-- Modular impairment pipeline
-- Pre-configured realism profiles
-- Integrated data generation with physics tracking
+Phase 1: Modular physics with impairment pipelines
+Phase 2: MATLAB backend integration
 """
-
-__version__ = "1.0.0-phase1"
 
 from physics.channel_sources import (
     ChannelSource,
     PythonSyntheticSource,
     MATLABEngineSource,
-    MATLABVerifiedSource,
-    get_channel_source,
-    list_available_sources
+    MATLABVerifiedSource
 )
 
 from physics.impairments import (
-    CSIEstimationError,
-    ChannelAging,
-    QuantizationNoise,
-    PhaseShifterQuantization,
-    AmplitudeControl,
-    MutualCoupling,
     ImpairmentPipeline
 )
 
 from physics.realism_profiles import (
-    REALISM_PROFILES,
-    get_profile,
     list_profiles,
-    create_pipeline_from_profile,
-    create_custom_pipeline,
-    compare_profiles
+    create_pipeline_from_profile
 )
 
-from physics.data_generation_physics import (
-    generate_channel_realization_with_physics,
-    compute_probe_powers_with_physics,
-    generate_limited_probing_dataset_with_physics,
-    generate_limited_probing_dataset  # Backward compatible
-)
+# ============================================================================
+# HELPER FUNCTIONS
+# ============================================================================
+
+def list_available_sources():
+    """
+    List all available channel sources.
+
+    Returns:
+        list: Available source names
+    """
+    return [
+        'python_synthetic',
+        'matlab_engine',
+        'matlab_verified'
+    ]
+
+
+def create_source_from_name(source_name: str, **kwargs) -> ChannelSource:
+    """
+    Create a channel source instance from name.
+
+    Args:
+        source_name: Name of source ('python_synthetic', 'matlab_engine', 'matlab_verified')
+        **kwargs: Additional parameters for the source
+
+    Returns:
+        ChannelSource instance
+
+    Raises:
+        ValueError: If source_name is unknown
+
+    Examples:
+        >>> source = create_source_from_name('python_synthetic')
+        >>> source = create_source_from_name('matlab_engine', scenario='cdl_ris')
+    """
+
+    source_registry = {
+        'python_synthetic': PythonSyntheticSource,
+        'matlab_engine': MATLABEngineSource,
+        'matlab_verified': MATLABVerifiedSource
+    }
+
+    if source_name not in source_registry:
+        raise ValueError(
+            f"Unknown source: {source_name}. "
+            f"Available sources: {list(source_registry.keys())}"
+        )
+
+    source_class = source_registry[source_name]
+
+    return source_class(**kwargs)
+
+
+def get_source_info(source_name: str) -> dict:
+    """
+    Get information about a channel source.
+
+    Args:
+        source_name: Name of source
+
+    Returns:
+        dict with source information
+    """
+
+    source_info_registry = {
+        'python_synthetic': {
+            'name': 'Python Synthetic',
+            'description': 'Built-in numpy-based Rayleigh fading',
+            'backend': 'python',
+            'verified': True,
+            'fast': True,
+            'requires': []
+        },
+        'matlab_engine': {
+            'name': 'MATLAB Engine',
+            'description': 'Live MATLAB channel generation using verified toolboxes',
+            'backend': 'matlab',
+            'verified': True,
+            'fast': False,
+            'requires': ['MATLAB R2021b+', 'Communications Toolbox', 'MATLAB Engine for Python']
+        },
+        'matlab_verified': {
+            'name': 'MATLAB Verified Data',
+            'description': 'Load pre-verified .mat files',
+            'backend': 'matlab',
+            'verified': True,
+            'fast': True,
+            'requires': ['Pre-generated .mat files']
+        }
+    }
+
+    return source_info_registry.get(source_name, {})
+
+
+# ============================================================================
+# EXPORTS
+# ============================================================================
 
 __all__ = [
     # Channel sources
@@ -52,53 +128,14 @@ __all__ = [
     'PythonSyntheticSource',
     'MATLABEngineSource',
     'MATLABVerifiedSource',
-    'get_channel_source',
     'list_available_sources',
+    'create_source_from_name',
+    'get_source_info',
 
     # Impairments
-    'CSIEstimationError',
-    'ChannelAging',
-    'QuantizationNoise',
-    'PhaseShifterQuantization',
-    'AmplitudeControl',
-    'MutualCoupling',
     'ImpairmentPipeline',
 
-    # Profiles
-    'REALISM_PROFILES',
-    'get_profile',
+    # Realism profiles
     'list_profiles',
-    'create_pipeline_from_profile',
-    'create_custom_pipeline',
-    'compare_profiles',
-
-    # Data generation
-    'generate_channel_realization_with_physics',
-    'compute_probe_powers_with_physics',
-    'generate_limited_probing_dataset_with_physics',
-    'generate_limited_probing_dataset',
+    'create_pipeline_from_profile'
 ]
-
-
-def print_phase1_info():
-    """Print Phase 1 implementation summary."""
-    print("="*70)
-    print("RIS Dashboard - Phase 1 Physics Extensions")
-    print("="*70)
-    print(f"\nVersion: {__version__}")
-    print("\nAvailable Channel Sources:")
-    sources = list_available_sources()
-    for name, info in sources.items():
-        status = info.get('status', 'AVAILABLE')
-        symbol = "[OK]" if status == 'AVAILABLE' or 'verified' in status.lower() else "[WARN]"
-        print(f"  {symbol} {name}: {info.get('description', 'N/A')}")
-
-    print("\nAvailable Realism Profiles:")
-    profiles = list_profiles()
-    for name, info in profiles.items():
-        print(f"  * {info['name']}")
-        print(f"    {info['description']}")
-
-    print("\n" + "="*70)
-    print("For detailed integration guide, see PHASE1_INTEGRATION_GUIDE.py")
-    print("="*70)

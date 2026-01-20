@@ -1,61 +1,66 @@
 """
-Model Architecture Registry for RIS Probe-Based ML System.
-
-Allows users to easily add new model architectures without modifying core code.
+Model Registry
+==============
+Central registry for all model architectures.
 """
 
-from typing import Dict, List
-from learnable_m_models import (
-    LearnedTopKMLP, AttentionBasedMLP, GumbelMLP, RLBasedMLP
+import torch.nn as nn
+from typing import Dict, Type, Optional
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+# Import all model classes
+from models.base_models import (
+    BaselineMLPPredictor,
+    AttentionMLPPredictor,
+    ResidualMLPPredictor
 )
 
-# Add to MODEL_ARCHITECTURES
-MODEL_REGISTRY: Dict[str, List[int]] = {
-    # Standard models
-    "Baseline_MLP": [256, 128],
-    "Deep_MLP": [512, 512, 256],
-    "Tiny_MLP": [64, 32],
 
-    # High-capacity models
-    "Ultra_Deep": [1024, 512, 256, 128, 64],
-    "Wide_Deep": [1024, 1024, 512, 512],
-
-    # Efficient models
-    "Lightweight": [128, 64],
-    "Minimal": [32, 16],
-
-    # Research models
-    "Experimental_A": [512, 256, 256, 128],
-    "Experimental_B": [768, 384, 192, 96],
-
-    # NEW PhD research architectures
-    "ResNet_Style": [512, 512, 512, 512],
-    "Pyramid": [1024, 512, 256, 128, 64, 32],
-    "Hourglass": [128, 256, 512, 256, 128],
-    "DoubleWide": [2048, 1024],
-    "VeryDeep": [256, 256, 256, 256, 256, 256, 256, 256],
-    "Bottleneck": [512, 64, 512],
-    "Asymmetric": [1024, 256, 512, 128],
-    "PhD_Custom_1": [768, 512, 384, 256, 128],
-    "PhD_Custom_2": [512, 512, 256, 256, 128, 128],
-
-    # Learnable M Selection Models
-    "LearnedTopK_MLP": [512, 256, 128],
-    "Attention_MLP": [512, 256, 128],
-    "Gumbel_MLP": [512, 256, 128],
-    "RL_MLP": [512, 256, 128],
+# Model registry
+MODEL_REGISTRY: Dict[str, Type[nn.Module]] = {
+    'Baseline_MLP': BaselineMLPPredictor,
+    'Attention_MLP': AttentionMLPPredictor,
+    'Residual_MLP': ResidualMLPPredictor,
 }
 
-def register_model(name: str, hidden_layers: List[int]) -> None:
-    """Register a new model architecture."""
-    MODEL_REGISTRY[name] = hidden_layers
 
-def get_model_architecture(name: str) -> List[int]:
-    """Get model architecture by name."""
-    if name not in MODEL_REGISTRY:
-        raise ValueError(f"Model '{name}' not found in registry. Available: {list(MODEL_REGISTRY.keys())}")
-    return MODEL_REGISTRY[name]
+def get_model_class(model_name: str) -> Type[nn.Module]:
+    """
+    Get model class from registry.
 
-def list_models() -> List[str]:
-    """List all available model architectures."""
+    Args:
+        model_name: Name of model preset
+
+    Returns:
+        Model class
+
+    Raises:
+        ValueError: If model_name not found
+    """
+    if model_name not in MODEL_REGISTRY:
+        raise ValueError(
+            f"Unknown model: {model_name}. "
+            f"Available models: {list(MODEL_REGISTRY.keys())}"
+        )
+
+    return MODEL_REGISTRY[model_name]
+
+
+def list_available_models() -> list:
+    """List all available model presets."""
     return list(MODEL_REGISTRY.keys())
+
+
+def register_model(name: str, model_class: Type[nn.Module]):
+    """
+    Register a new model class.
+
+    Args:
+        name: Model name
+        model_class: Model class
+    """
+    MODEL_REGISTRY[name] = model_class
+    logger.info(f"Registered model: {name}")

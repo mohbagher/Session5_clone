@@ -186,6 +186,18 @@ def get_widget_values(widget_dict):
     else:
         config['custom_impairments_config'] = None
 
+    # ========================================================================
+    # PHASE 2 ADDITIONS START HERE
+    # ========================================================================
+    config['physics_backend'] = widget_dict['physics_backend'].value
+    config['matlab_scenario'] = widget_dict['matlab_scenario'].value
+    config['carrier_frequency'] = widget_dict['carrier_frequency'].value
+    config['delay_profile'] = widget_dict['delay_profile'].value
+    config['doppler_shift_matlab'] = widget_dict['doppler_shift_matlab'].value
+    # ========================================================================
+    # PHASE 2 ADDITIONS END HERE
+    # ========================================================================
+
     # Model parameters (placeholder - will be populated when tab is complete)
     # config['model_preset'] = widget_dict.get('model_preset', widgets.Widget()).value
     # config['num_layers'] = widget_dict.get('num_layers', widgets.Widget()).value
