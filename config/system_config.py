@@ -1,9 +1,14 @@
 """
 Configuration and hyperparameters for RIS probe-based control with limited probing.
+
+Phase 1 Extensions:
+- Channel source selection (Python/MATLAB)
+- Modular realism profiles
+- Custom impairment configuration
 """
 
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List, Optional, Dict
 import torch
 
 
@@ -20,9 +25,15 @@ class SystemConfig:
     phase_bits: int = 3            # Bits for discrete phase quantization
     probe_type: str = "continuous"  # Type of probe: "continuous", "binary", "2bit", "hadamard", "sobol", "halton"
     probe_bank_method: Optional[str] = None  # DEPRECATED: Use probe_type instead
-    
+
+    # Phase 1 Extensions: Physics Source & Realism
+    channel_source: str = "python_synthetic"  # Channel generator: "python_synthetic", "matlab_engine", "matlab_verified"
+    realism_profile: str = "ideal"  # Realism preset: "ideal", "mild_impairments", "moderate_impairments", "severe_impairments", "worst_case"
+    use_custom_impairments: bool = False  # If True, use custom_impairments_config instead of profile
+    custom_impairments_config: Optional[Dict] = None  # Custom impairment settings
+
     def __post_init__(self):
-        """Handle backward compatibility for probe_bank_method."""
+        """Handle backward compatibility and validate Phase 1 parameters."""
         # Handle deprecated probe_bank_method
         if self.probe_bank_method is not None:
             import warnings
@@ -37,6 +48,15 @@ class SystemConfig:
                 self.probe_type = "continuous"
             else:
                 self.probe_type = self.probe_bank_method
+
+        # Validate new Phase 1 parameters
+        valid_sources = ["python_synthetic", "matlab_engine", "matlab_verified"]
+        if self.channel_source not in valid_sources:
+            raise ValueError(f"channel_source must be one of: {', '.join(valid_sources)}")
+
+        valid_profiles = ["ideal", "mild_impairments", "moderate_impairments", "severe_impairments", "worst_case"]
+        if self.realism_profile not in valid_profiles:
+            raise ValueError(f"realism_profile must be one of: {', '.join(valid_profiles)}")
 
 
 @dataclass
@@ -89,7 +109,7 @@ class Config:
         # Run SystemConfig's __post_init__ for backward compatibility
         if hasattr(self.system, '__post_init__'):
             self.system.__post_init__()
-        
+
         # Ensure top_m values don't exceed K
         self.eval.top_m_values = [m for m in self.eval.top_m_values if m <= self.system.K]
         # Ensure M <= K
@@ -107,9 +127,9 @@ class Config:
 
     def print_config(self):
         """Print configuration summary."""
-        print("\n" + "=" * 60)
+        print("\n" + "=" * 70)
         print("CONFIGURATION")
-        print("=" * 60)
+        print("=" * 70)
         print("\nSystem:")
         print(f"  N (RIS elements):     {self.system.N}")
         print(f"  K (total probes):     {self.system.K}")
@@ -119,6 +139,12 @@ class Config:
         if self.system.phase_mode == "discrete":
             print(f"  Phase bits:           {self.system.phase_bits}")
         print(f"  Probe type:           {self.system.probe_type}")
+
+        # Phase 1: Print physics source and realism
+        print(f"\n  Channel Source:       {self.system.channel_source}")
+        print(f"  Realism Profile:      {self.system.realism_profile}")
+        if self.system.use_custom_impairments:
+            print(f"  Custom Impairments:   ENABLED")
 
         print("\nData:")
         print(f"  Training samples:     {self.data.n_train}")
@@ -134,7 +160,7 @@ class Config:
         print(f"  Batch size:           {self.training.batch_size}")
         print(f"  Learning rate:        {self.training.learning_rate}")
         print(f"  Device:               {self.training.device}")
-        print("=" * 60)
+        print("=" * 70)
 
 
 def get_config(**kwargs) -> Config:
@@ -142,7 +168,7 @@ def get_config(**kwargs) -> Config:
     Create configuration with optional overrides.
 
     Example:
-        config = get_config(system={'N': 64, 'K': 128, 'M': 16})
+        config = get_config(system={'N': 64, 'K': 128, 'M': 16, 'realism_profile': 'moderate_impairments'})
     """
     config = Config()
 
