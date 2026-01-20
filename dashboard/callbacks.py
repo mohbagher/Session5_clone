@@ -19,7 +19,7 @@ import pickle, hashlib
 from IPython.display import display, clear_output
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from model_registry import get_model_architecture
+from models.model_registry import get_model_architecture
 from dashboard.config_manager import config_to_dict, save_config, load_config, dict_to_widgets
 from dashboard.experiment_runner import run_single_experiment, run_multi_model_comparison, run_multi_seed_experiment
 from dashboard.plots import EXTENDED_PLOT_REGISTRY, set_plot_style
@@ -499,6 +499,7 @@ def on_run_stack(b, wd):
         print(f"   Results: {results_file.name}")
         print(f"   Cached: {len(TRAINED_CACHE)} experiments for future use")
 
+
 def on_run_single(b, wd):
     global CURRENT_RESULTS
     wd['status_output'].clear_output()
@@ -507,23 +508,36 @@ def on_run_single(b, wd):
     with wd['status_output']:
         try:
             cfg = config_to_dict(wd)
+
+            # PHASE 1: Print physics configuration
+            print("=" * 70)
+            print("EXPERIMENT CONFIGURATION")
+            print("=" * 70)
+            print(f"Physics Source: {cfg.get('channel_source', 'python_synthetic')}")
+            print(f"Realism Profile: {cfg.get('realism_profile', 'ideal')}")
+            if cfg.get('use_custom_impairments'):
+                print("Custom Impairments: ENABLED")
+            print("=" * 70)
+            print()
+
             def progress_cb(epoch, total, metrics):
-                wd['progress_bar'].value = int((epoch/total)*100)
+                wd['progress_bar'].value = int((epoch / total) * 100)
                 wd['live_metrics'].value = (f"<b>Training...</b><br>Epoch {epoch}/{total}<br>"
-                                           f"Loss: {metrics.get('val_loss',0):.4f}")
+                                            f"Loss: {metrics.get('val_loss', 0):.4f}")
 
             if cfg.get('compare_multiple_models'):
                 models = list(cfg.get('models_to_compare', []))
                 if len(models) < 2:
-                    print("⚠️ Select 2+ models"); return
+                    print("WARNING: Select 2+ models");
+                    return
                 CURRENT_RESULTS = run_multi_model_comparison(cfg, models, progress_cb)
             else:
                 CURRENT_RESULTS = run_single_experiment(cfg, progress_callback=progress_cb)
 
             update_results_display(wd, CURRENT_RESULTS)
-            print("\n✅ Done!")
+            print("\nDone!")
         except Exception as e:
-            print(f"❌ {e}")
+            print(f"ERROR: {e}")
             import traceback
             traceback.print_exc()
 
@@ -761,3 +775,4 @@ def setup_experiment_handlers(wd):
 
     wd['selected_plots'].observe(safe_plot_update, names='value')
     wd['color_palette'].observe(safe_plot_update, names='value')
+

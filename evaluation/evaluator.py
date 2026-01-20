@@ -14,7 +14,7 @@ from torch.utils.data import DataLoader
 from typing import Dict, List, Optional
 from dataclasses import dataclass
 
-from config import Config
+from config.system_config import Config
 
 
 @dataclass

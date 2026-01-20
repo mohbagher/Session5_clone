@@ -17,13 +17,14 @@ import time
 # Add parent directory to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from config import Config, SystemConfig, DataConfig, ModelConfig, TrainingConfig, EvalConfig
-from experiments.probe_generators import get_probe_bank
-from data_generation import generate_limited_probing_dataset, LimitedProbingDataset
+from config.system_config import Config, SystemConfig, DataConfig, ModelConfig, TrainingConfig, EvalConfig
+from data.probe_generators import get_probe_bank
+from physics.data_generation_physics import generate_limited_probing_dataset
+# from data.data_generation import generate_limited_probing_dataset, LimitedProbingDataset
 from model import LimitedProbingMLP
-from training import train
-from evaluation import evaluate_model
-from model_registry import get_model_architecture
+from training.trainer import train
+from evaluation.evaluator import evaluate_model
+from models.model_registry import get_model_architecture
 
 
 @dataclass
@@ -199,7 +200,7 @@ def run_single_experiment(config_dict: Dict[str, Any],
         if verbose:
             print("[3/5] Creating dataloaders...")
 
-        from data_generation import LimitedProbingDataset
+        from data.data_generation import LimitedProbingDataset
 
         train_dataset = LimitedProbingDataset(
             masked_powers=train_data['masked_powers'],

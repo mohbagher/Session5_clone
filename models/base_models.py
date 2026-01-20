@@ -18,7 +18,7 @@ import torch
 import torch.nn as nn
 from typing import List
 
-from config import Config
+from config.system_config import Config
 
 
 class LimitedProbingMLP(nn.Module):
