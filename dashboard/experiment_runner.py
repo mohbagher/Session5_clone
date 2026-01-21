@@ -2,6 +2,7 @@
 Experiment Runner - FINAL COMPLETE FIX
 =======================================
 All issues resolved, fully tested.
+Fixed normalization for proper model learning.
 """
 
 import numpy as np
@@ -50,7 +51,7 @@ def run_single_experiment(
 
     try:
         backend = config.get('physics_backend', 'python')
-        update_status(widget_dict, f"🔧 Initializing {backend.upper()} backend...", verbose)
+        update_status(widget_dict, f"Initializing {backend.upper()} backend...", verbose)
 
         total_samples = config.get('n_train', 50000) + config.get('n_val', 5000) + config.get('n_test', 5000)
 
@@ -77,13 +78,13 @@ def run_single_experiment(
         else:
             results['metadata']['impairments_applied'] = False
 
-        update_status(widget_dict, "📊 Generating probe bank...", verbose)
+        update_status(widget_dict, "Generating probe bank...", verbose)
         probe_bank = generate_probe_bank(config)
 
-        update_status(widget_dict, "🎯 Generating training data...", verbose)
+        update_status(widget_dict, "Generating training data...", verbose)
         train_data_dict = generate_training_data(h, g, probe_bank, config)
 
-        update_status(widget_dict, "🧠 Training model...", verbose)
+        update_status(widget_dict, "Training model...", verbose)
         model, training_history = train_model(
             train_data_dict,  # Pass the full dict with train/val/test
             config,
@@ -93,7 +94,7 @@ def run_single_experiment(
             verbose=verbose
         )
 
-        update_status(widget_dict, "📈 Evaluating performance...", verbose)
+        update_status(widget_dict, "Evaluating performance...", verbose)
         eval_results = evaluate_model(model, train_data_dict['test'], config)
 
         end_time = datetime.now()
@@ -111,7 +112,7 @@ def run_single_experiment(
         result.metadata['end_time'] = end_time.isoformat()
         result.metadata['success'] = True
 
-        update_status(widget_dict, "✅ Experiment completed successfully!", verbose)
+        update_status(widget_dict, "Experiment completed successfully!", verbose)
         return result
 
     except Exception as e:
@@ -133,7 +134,7 @@ def run_single_experiment(
         result.metadata['error'] = str(e)
         result.metadata['end_time'] = end_time.isoformat()
 
-        update_status(widget_dict, f"❌ Experiment failed: {e}", verbose)
+        update_status(widget_dict, f"Experiment failed: {e}", verbose)
         return result
 
 
@@ -152,7 +153,7 @@ def generate_channels_python(
     seed = config.get('seed', 42)
     channel_source_name = config.get('channel_source', 'python_synthetic')
 
-    update_status(widget_dict, f"📡 Generating {total_samples} channels with Python...", verbose)
+    update_status(widget_dict, f"Generating {total_samples} channels with Python...", verbose)
 
     source = create_source_from_name(channel_source_name)
     rng = np.random.RandomState(seed)
@@ -181,7 +182,7 @@ def generate_channels_python(
         'seed': seed
     }
 
-    update_status(widget_dict, f"✅ Python channels generated", verbose)
+    update_status(widget_dict, f"Python channels generated", verbose)
     return h, g, metadata
 
 
@@ -198,7 +199,7 @@ def generate_channels_matlab(
         N = config['N']
         matlab_scenario = config.get('matlab_scenario', 'rayleigh_basic')
 
-        update_status(widget_dict, f"🔧 Starting MATLAB Engine...", verbose)
+        update_status(widget_dict, f"Starting MATLAB Engine...", verbose)
 
         source = MATLABEngineSource(scenario=matlab_scenario)
         h, g, metadata = source.generate_channels(
@@ -208,12 +209,12 @@ def generate_channels_matlab(
             seed=config.get('seed', 42)
         )
 
-        update_status(widget_dict, f"✅ MATLAB channels generated", verbose)
+        update_status(widget_dict, f"MATLAB channels generated", verbose)
         return h, g, metadata
 
     except Exception as e:
         logger.error(f"MATLAB failed: {e}")
-        update_status(widget_dict, f"⚠️ MATLAB failed, using Python", verbose)
+        update_status(widget_dict, f"MATLAB failed, using Python", verbose)
         return generate_channels_python(config, total_samples, widget_dict, verbose)
 
 
@@ -231,7 +232,7 @@ def apply_impairments(
     if realism_profile == 'ideal':
         return h, g
 
-    update_status(widget_dict, f"🔨 Applying impairments...", verbose)
+    update_status(widget_dict, f"Applying impairments...", verbose)
 
     pipeline = create_pipeline_from_profile(realism_profile)
     num_samples = h.shape[1]
@@ -278,13 +279,18 @@ def generate_training_data(
     n_val = config.get('n_val', 5000)
     n_test = config.get('n_test', 5000)
 
-    # Split channels
-    h_train = h[:, :n_train]
-    g_train = g[:, :n_train]
-    h_val = h[:, n_train:n_train + n_val]
-    g_val = g[:, n_train:n_train + n_val]
-    h_test = h[:, n_train + n_val:]
-    g_test = g[:, n_train + n_val:]
+    # Split channels - CONVERT TO CORRECT FORMAT
+    # h and g come in as (N, total_samples)
+    # Need to convert to (samples, N) for matlab_data format
+    h_transposed = h.T  # Now (total_samples, N)
+    g_transposed = g.T
+
+    h_train = h_transposed[:n_train]
+    g_train = g_transposed[:n_train]
+    h_val = h_transposed[n_train:n_train + n_val]
+    g_val = g_transposed[n_train:n_train + n_val]
+    h_test = h_transposed[n_train + n_val:]
+    g_test = g_transposed[n_train + n_val:]
 
     # System config as dict
     system_config_dict = {
@@ -297,13 +303,18 @@ def generate_training_data(
         'seed': config.get('seed', 42)
     }
 
-    # Generate datasets
+    # CRITICAL FIX: Pass the channels!
+    normalization_method = config.get('normalization_method', 'max_global')
+
+    # Generate datasets with FIXED normalization AND pre-generated channels
     train_data = generate_limited_probing_dataset(
         probe_bank=probe_bank,
         n_samples=n_train,
         M=M,
         system_config=system_config_dict,
         normalize=True,
+        normalization_method=normalization_method,
+        matlab_data=(h_train, g_train),  # ← PASS THE CHANNELS!
         seed=config.get('seed', 42)
     )
 
@@ -313,6 +324,8 @@ def generate_training_data(
         M=M,
         system_config=system_config_dict,
         normalize=True,
+        normalization_method=normalization_method,
+        matlab_data=(h_val, g_val),  # ← PASS THE CHANNELS!
         seed=config.get('seed', 42) + 1
     )
 
@@ -322,6 +335,8 @@ def generate_training_data(
         M=M,
         system_config=system_config_dict,
         normalize=True,
+        normalization_method=normalization_method,
+        matlab_data=(h_test, g_test),  # ← PASS THE CHANNELS!
         seed=config.get('seed', 42) + 2
     )
 
@@ -372,11 +387,11 @@ def train_model(
         try:
             model.load_state_dict(initial_weights)
             if verbose:
-                logger.info("✓ Transfer learning weights loaded")
+                logger.info("Transfer learning weights loaded")
         except Exception as e:
             logger.warning(f"Could not load weights: {e}")
 
-    # ✅ FIX: Access train_data_dict['train'] and ['val']
+    # FIX: Access train_data_dict['train'] and ['val']
     train_data = train_data_dict['train']
     val_data = train_data_dict['val']
 
@@ -408,7 +423,7 @@ def train_model(
         'val_acc': []
     })()
 
-    # ✅ EARLY STOPPING
+    # EARLY STOPPING
     early_stopping = config.get('early_stopping', True)
     patience = config.get('early_stop_patience', 20)
     min_delta = config.get('early_stopping_min_delta', 1e-4)
@@ -457,7 +472,7 @@ def train_model(
         history.val_acc.append(val_acc)
         history.val_eta.append(val_acc)
 
-        # ✅ EARLY STOPPING CHECK
+        # EARLY STOPPING CHECK
         if early_stopping:
             # Check if validation loss improved
             if val_loss < best_val_loss - min_delta:
@@ -465,7 +480,7 @@ def train_model(
                 best_model_state = model.state_dict().copy()
                 patience_counter = 0
                 if verbose:
-                    logger.info(f"✓ New best model at epoch {epoch + 1}")
+                    logger.info(f"New best model at epoch {epoch + 1}")
             else:
                 patience_counter += 1
                 if verbose and patience_counter > 0:
@@ -474,16 +489,16 @@ def train_model(
                 # Stop if patience exceeded
                 if patience_counter >= patience:
                     if verbose:
-                        logger.info(f"⏹️ Early stopping at epoch {epoch + 1}/{n_epochs}")
+                        logger.info(f"Early stopping at epoch {epoch + 1}/{n_epochs}")
                         logger.info(f"   Best val_loss: {best_val_loss:.4f}")
 
                     # Restore best model
                     if best_model_state is not None:
                         model.load_state_dict(best_model_state)
                         if verbose:
-                            logger.info(f"   ✓ Restored best model weights")
+                            logger.info(f"   Restored best model weights")
 
-                    update_status(widget_dict, f"⏹️ Early stopping (no improvement for {patience} epochs)", verbose)
+                    update_status(widget_dict, f"Early stopping (no improvement for {patience} epochs)", verbose)
                     break
 
         if progress_callback is not None:

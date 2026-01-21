@@ -55,8 +55,8 @@ def train_model(
     train_loader = create_dataloader(train_data, batch_size, shuffle=True)
     val_loader = create_dataloader(val_data, batch_size, shuffle=False)
 
-    # Loss and optimizer
-    criterion = nn.MSELoss()
+    # Loss and optimizer - USE CROSS ENTROPY FOR CLASSIFICATION
+    criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
     # Learning rate scheduler
