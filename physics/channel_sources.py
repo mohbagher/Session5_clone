@@ -97,6 +97,45 @@ class PythonSyntheticSource(ChannelSource):
 
         return h, g, metadata
 
+    def generate_channels(self,
+                          N: int,
+                          K: int = 1,
+                          num_samples: int = 1,
+                          sigma_h_sq: float = 1.0,
+                          sigma_g_sq: float = 1.0,
+                          seed: Optional[int] = None,
+                          **kwargs) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Generate multiple channel realizations.
+
+        Args:
+            N: Number of RIS elements
+            K: Number of transmit antennas (unused for simple Rayleigh)
+            num_samples: Number of channel realizations
+            sigma_h_sq: BS-RIS channel variance
+            sigma_g_sq: RIS-UE channel variance
+            seed: Random seed
+            **kwargs: Additional parameters (ignored)
+
+        Returns:
+            h_all: BS-RIS channels (N, num_samples)
+            g_all: RIS-UE channels (N, num_samples)
+        """
+        if seed is not None:
+            rng = np.random.RandomState(seed)
+        else:
+            rng = np.random.RandomState()
+
+        h_all = np.zeros((N, num_samples), dtype=complex)
+        g_all = np.zeros((N, num_samples), dtype=complex)
+
+        for i in range(num_samples):
+            h, g, _ = self.generate_channel(N, sigma_h_sq, sigma_g_sq, rng)
+            h_all[:, i] = h
+            g_all[:, i] = g
+
+        return h_all, g_all
+
     def get_source_info(self) -> Dict:
         return {
             'name': 'Python Synthetic Generator',

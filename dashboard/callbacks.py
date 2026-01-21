@@ -17,12 +17,6 @@ from datetime import datetime
 from pathlib import Path
 import pickle, hashlib
 from IPython.display import display, clear_output
-from dashboard.experiment_runner import (
-    run_single_experiment,
-    run_multi_model_comparison,
-    run_multi_seed_experiment
-)
-
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from models.model_registry import get_model_architecture
 from dashboard.config_manager import config_to_dict, save_config, load_config, dict_to_widgets
@@ -35,9 +29,84 @@ PAUSE_REQUESTED, PLOT_UPDATE_ENABLED = False, True
 
 # === CACHING ===
 def compute_hash(cfg):
-    rel = {k: cfg.get(k) for k in ['N','K','M','probe_type','model_preset','n_train','learning_rate','n_epochs','seed']}
-    rel['transfer'] = cfg.get('transfer_source', 'None')
-    return hashlib.md5(json.dumps(rel, sort_keys=True).encode()).hexdigest()
+    """
+    Compute hash for experiment caching - FULLY DYNAMIC.
+
+    Automatically includes ALL parameters from config, excluding only:
+    - UI/display parameters that don't affect results
+    - Output/export parameters
+    - Visualization parameters
+
+    This makes the system automatically expandable - add any new parameter
+    to the config and it will be included in the hash without code changes.
+    """
+
+    # Parameters to EXCLUDE from hash (UI/display only, don't affect training)
+    EXCLUDE_KEYS = {
+        # Visualization/output (don't affect experiment results)
+        'selected_plots',
+        'figure_format',
+        'dpi',
+        'color_palette',
+        'save_plots',
+        'output_dir',
+
+        # Evaluation display options (don't affect training)
+        'top_m_values',  # These affect WHICH metrics are computed, but not the model itself
+        'compare_multiple_models',
+        'models_to_compare',
+        'multi_seed_runs',
+        'num_seeds',
+        'compute_confidence_intervals',
+
+        # Stack/session management (metadata, not parameters)
+        'experiment_name',
+        'stack_index',
+        'custom_exp_name',
+
+        # UI state (not experiment parameters)
+        'status_output',
+        'results_summary',
+        'progress_bar',
+        'live_metrics',
+    }
+
+    # Build hash dictionary by INCLUDING everything except excluded keys
+    rel = {}
+
+    for key, value in cfg.items():
+        # Skip excluded keys
+        if key in EXCLUDE_KEYS:
+            continue
+
+        # Skip None values (missing parameters)
+        if value is None:
+            continue
+
+        # Convert unhashable types to hashable equivalents
+        if isinstance(value, list):
+            value = tuple(value)  # Lists → tuples
+        elif isinstance(value, dict):
+            value = tuple(sorted(value.items()))  # Dicts → sorted tuples
+        elif isinstance(value, set):
+            value = tuple(sorted(value))  # Sets → sorted tuples
+
+        # Skip widget objects or other non-serializable types
+        try:
+            json.dumps(value)  # Test if serializable
+            rel[key] = value
+        except (TypeError, ValueError):
+            # Skip non-serializable objects (likely widgets)
+            continue
+
+    # Create deterministic hash
+    try:
+        hash_str = json.dumps(rel, sort_keys=True)
+        return hashlib.md5(hash_str.encode()).hexdigest()
+    except Exception as e:
+        # Fallback: if something goes wrong, generate random hash (forces re-run)
+        import random
+        return hashlib.md5(str(random.random()).encode()).hexdigest()
 
 def is_cacheable(cfg): return cfg.get('transfer_source', 'None') in ['None', None]
 def get_cached(cfg): return TRAINED_CACHE.get(compute_hash(cfg)) if is_cacheable(cfg) else None
@@ -469,8 +538,13 @@ def on_run_stack(b, wd):
                                                f"Loss: {metrics.get('val_loss',0):.4f}<br>"
                                                f"η: {metrics.get('val_eta',0):.4f}")
 
-                result = run_single_experiment(cfg, progress_callback=progress_cb,
-                                             initial_weights=initial_weights, verbose=False)
+                # Try with progress_callback, fall back if not supported
+                try:
+                    result = run_single_experiment(cfg, progress_callback=progress_cb,
+                                                 initial_weights=initial_weights, verbose=False)
+                except TypeError:
+                    # Old version without progress_callback support
+                    result = run_single_experiment(cfg, initial_weights=initial_weights, verbose=False)
                 STACK_RESULTS.append(result)
                 cache(cfg, result)  # Cache for future
 
@@ -479,10 +553,15 @@ def on_run_stack(b, wd):
                 model_file = Path(paths['models'])/f"{safe_name}_{timestamp}.pt"
                 torch.save(result.model_state, model_file)
 
-                if result.evaluation.accuracy_top1 < 0.01:
-                    print(f"   ⚠️ Low accuracy ({result.evaluation.accuracy_top1:.3f}) - training may have failed")
+                # FIXED: Check if evaluation exists before accessing
+                if result.evaluation is not None and hasattr(result.evaluation, 'accuracy_top1'):
+                    if result.evaluation.accuracy_top1 < 0.01:
+                        print(f"   ⚠️ Low accuracy ({result.evaluation.accuracy_top1:.3f})")
+                    else:
+                        print(f"   ✅ η={result.evaluation.eta_top1:.4f} | Acc={result.evaluation.accuracy_top1:.3f}\n")
                 else:
-                    print(f"   ✅ η={result.evaluation.eta_top1:.4f} | Acc={result.evaluation.accuracy_top1:.3f}\n")
+                    print(f"   ⚠️ Experiment failed - no evaluation\n")
+
 
             except Exception as e:
                 print(f"   ❌ Failed: {e}\n")
@@ -564,13 +643,22 @@ def update_results_display(wd, results):
             summary += "<th>Experiment</th><th>Model</th><th>Probe</th><th>M</th><th>η top-1</th><th>Acc</th><th>Time(s)</th></tr>"
             for name, res in results.items():
                 cfg, ev = res.config, res.evaluation
-                summary += (f"<tr><td><b>{name}</b></td>"
-                          f"<td>{cfg.get('model_preset','?')}</td>"
-                          f"<td>{cfg.get('probe_type','?')}</td>"
-                          f"<td>{cfg.get('M','?')}</td>"
-                          f"<td>{ev.eta_top1:.4f}</td>"
-                          f"<td>{ev.accuracy_top1:.3f}</td>"
-                          f"<td>{res.execution_time:.1f}</td></tr>")
+                # FIXED: Handle None evaluation
+                if ev is not None and hasattr(ev, 'eta_top1'):
+                    summary += (f"<tr><td><b>{name}</b></td>"
+                                f"<td>{cfg.get('model_preset', '?')}</td>"
+                                f"<td>{cfg.get('probe_type', '?')}</td>"
+                                f"<td>{cfg.get('M', '?')}</td>"
+                                f"<td>{ev.eta_top1:.4f}</td>"
+                                f"<td>{ev.accuracy_top1:.3f}</td>"
+                                f"<td>{res.execution_time:.1f}</td></tr>")
+                else:
+                    summary += (f"<tr><td><b>{name}</b></td>"
+                                f"<td>{cfg.get('model_preset', '?')}</td>"
+                                f"<td>{cfg.get('probe_type', '?')}</td>"
+                                f"<td>{cfg.get('M', '?')}</td>"
+                                f"<td colspan='2' style='color: red;'>FAILED</td>"
+                                f"<td>{res.execution_time:.1f}</td></tr>")
             summary += "</table>"
             summary += f"<p style='margin-top: 10px;'><i>Loaded {len(results)} experiments</i></p>"
             wd['results_summary'].value = summary

@@ -206,6 +206,38 @@ class ImpairmentPipeline:
         self.amplitude_control = amplitude_control or AmplitudeControl(enabled=False)
         self.mutual_coupling = mutual_coupling or MutualCoupling(enabled=False)
 
+    def add_block(self, impairment_type: str, config: Dict):
+        """
+        Add an impairment block to the pipeline.
+
+        Args:
+            impairment_type: Type of impairment ('csi_error', 'channel_aging', etc.)
+            config: Configuration dict with parameters
+        """
+        from physics.impairments import (
+            CSIEstimationError,
+            ChannelAging,
+            QuantizationNoise,
+            PhaseShifterQuantization,
+            AmplitudeControl,
+            MutualCoupling
+        )
+
+        if impairment_type == 'csi_error':
+            self.csi_error = CSIEstimationError(**{k: v for k, v in config.items() if k != 'type'})
+        elif impairment_type == 'channel_aging':
+            self.channel_aging = ChannelAging(**{k: v for k, v in config.items() if k != 'type'})
+        elif impairment_type == 'quantization':
+            self.quantization = QuantizationNoise(**{k: v for k, v in config.items() if k != 'type'})
+        elif impairment_type == 'phase_quantization':
+            self.phase_quantization = PhaseShifterQuantization(**{k: v for k, v in config.items() if k != 'type'})
+        elif impairment_type == 'amplitude_control':
+            self.amplitude_control = AmplitudeControl(**{k: v for k, v in config.items() if k != 'type'})
+        elif impairment_type == 'mutual_coupling':
+            self.mutual_coupling = MutualCoupling(**{k: v for k, v in config.items() if k != 'type'})
+        else:
+            raise ValueError(f"Unknown impairment type: {impairment_type}")
+
     def apply_channel_impairments(self, h: np.ndarray, g: np.ndarray, rng: np.random.RandomState) -> Tuple[np.ndarray, np.ndarray, Dict]:
         metadata_list = []
         h, g, meta = self.mutual_coupling.apply_to_channel(h, g)
