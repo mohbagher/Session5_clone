@@ -489,7 +489,9 @@ def on_load_results_browser(b, wd):
 def on_pause_training(b, wd):
     global PAUSE_REQUESTED
     PAUSE_REQUESTED = True
-    with wd['status_output']: print("⏸️ Pause requested")
+    with wd['status_output']:
+        print("\n⏸️ PAUSE REQUESTED - Will stop after current experiment completes")
+        print("   (Current experiment will finish, then execution stops)\n")
 
 def on_resume_training(b, wd):
     global PAUSE_REQUESTED

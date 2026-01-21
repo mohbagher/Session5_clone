@@ -73,6 +73,14 @@ def config_to_dict(widgets_dict: Dict) -> Dict[str, Any]:
         'color_palette': widgets_dict['color_palette'].value,
         'save_plots': widgets_dict['save_plots'].value,
         'output_dir': widgets_dict['output_dir'].value,
+
+        # Backends and physocs
+        'physics_backend': widgets_dict['physics_backend'].value,
+        'matlab_scenario': widgets_dict['matlab_scenario'].value,
+        'realism_profile': widgets_dict['realism_profile'].value,
+        'carrier_frequency': widgets_dict['carrier_frequency'].value,
+        'doppler_shift_matlab': widgets_dict['doppler_shift_matlab'].value,
+        'use_custom_impairments': widgets_dict['use_custom_impairments'].value,
     }
     
     return config

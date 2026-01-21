@@ -282,40 +282,60 @@ class MATLABEngineSource:
         return d
 
     def _matlab_struct_to_dict(self, s: Any) -> Dict:
-        """Convert MATLAB struct to Python dict."""
+        """
+        Convert MATLAB struct to Python dict with robust error handling.
+
+        Handles multiple MATLAB struct formats and gracefully degrades.
+        """
         if s is None:
             return {}
 
         result = {}
+
         try:
-            # MATLAB struct fields
-            for field in s._fieldnames:
-                value = getattr(s, field)
+            # Method 1: Try modern MATLAB Engine API (R2021b+)
+            if hasattr(s, '_fieldnames'):
+                for field in s._fieldnames:
+                    try:
+                        value = getattr(s, field)
 
-                # Convert MATLAB types to Python
-                if hasattr(value, '__iter__') and not isinstance(value, str):
-                    value = np.array(value)
+                        # Convert MATLAB arrays to numpy
+                        if hasattr(value, '_data'):
+                            value = np.array(value._data)
+                        elif hasattr(value, '__iter__') and not isinstance(value, (str, dict)):
+                            try:
+                                value = np.array(value)
+                            except:
+                                pass  # Keep original if conversion fails
 
-                result[field] = value
-        except:
-            # Fallback: if conversion fails, return empty dict
-            logger.warning("Failed to convert MATLAB struct to dict")
+                        result[field] = value
+                    except Exception as e:
+                        logger.warning(f"Could not extract field '{field}': {e}")
+                        result[field] = None
 
-        return result
+                return result
 
-    def get_info(self) -> Dict:
-        """Get information about the MATLAB source."""
-        session_info = self.session_manager.get_session_info()
+            # Method 2: Try dict-like access (alternative MATLAB format)
+            elif isinstance(s, dict):
+                return s
 
-        return {
-            'backend': 'matlab_engine',
-            'scenario': self.scenario_name,
-            'scenario_description': self.scenario_template.description,
-            'toolbox': self.scenario_template.toolbox,
-            'matlab_version': session_info.matlab_version if session_info else 'unknown',
-            'available_toolboxes': [
-                name for name, available in self.available_toolboxes.items() if available
-            ],
-            'session_status': session_info.status if session_info else 'disconnected',
-            'reference': self.scenario_template.reference
-        }
+            # Method 3: Try direct attribute access
+            elif hasattr(s, '__dict__'):
+                for key, value in s.__dict__.items():
+                    if not key.startswith('_'):
+                        result[key] = value
+                return result
+
+            # Method 4: Give up gracefully
+            else:
+                logger.warning(f"Unknown MATLAB struct type: {type(s)}, returning empty dict")
+                return {}
+
+        except Exception as e:
+            logger.error(f"Failed to convert MATLAB struct to dict: {e}")
+            # Return minimal metadata instead of crashing
+            return {
+                'conversion_error': str(e),
+                'matlab_type': str(type(s)),
+                'fallback': True
+            }
