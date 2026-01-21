@@ -193,7 +193,7 @@ def generate_limited_probing_dataset(
     probe_bank: ProbeBank,
     n_samples: int,
     M: int,
-    system_config: SystemConfig,
+    system_config,  # Can be SystemConfig OR dict
     normalize: bool = True,
     seed: Optional[int] = None,
     matlab_data: Optional[Tuple[np.ndarray, np.ndarray]] = None,
@@ -206,6 +206,19 @@ def generate_limited_probing_dataset(
     rng = np.random.RandomState(seed)
     K = probe_bank.K
     N = probe_bank.N
+
+    # ✅ BACKWARD COMPATIBILITY: Handle dict or dataclass
+    if isinstance(system_config, dict):
+        cfg = system_config
+    elif hasattr(system_config, '__dict__'):
+        cfg = system_config.__dict__
+    else:
+        cfg = system_config
+
+    # Extract parameters with defaults
+    sigma_h_sq = cfg.get('sigma_h_sq', 1.0)
+    sigma_g_sq = cfg.get('sigma_g_sq', 1.0)
+    P_tx = cfg.get('P_tx', 1.0)
 
     # MATLAB Data Check
     h_matlab, g_matlab = None, None
@@ -230,16 +243,15 @@ def generate_limited_probing_dataset(
              g = g_matlab[idx]
         else:
              h, g = generate_channel_realization(
-                N, system_config.sigma_h_sq, system_config.sigma_g_sq, rng
+                N, sigma_h_sq, sigma_g_sq, rng
              )
-
         # 2. Physics: Full Powers (Oracle)
-        p_full = compute_probe_powers(h, g, probe_bank, P_tx=system_config.P_tx)
+        p_full = compute_probe_powers(h, g, probe_bank, P_tx=P_tx)
         powers_full[i] = p_full
 
         # 3. Label & Optimal
         labels[i] = np.argmax(p_full)
-        optimal_powers[i] = compute_optimal_power(h, g, P_tx=system_config.P_tx)
+        optimal_powers[i] = compute_optimal_power(h, g, P_tx=P_tx)
 
         # 4. Probing Strategy
         obs_idx = select_probing_subset(
