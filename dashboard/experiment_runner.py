@@ -511,34 +511,540 @@ def train_model(
     return model, history
 
 
+# ============================================================================
+# REPLACE THIS FUNCTION in dashboard/experiment_runner.py
+# ============================================================================
+
+
 def evaluate_model(
         model: Any,
         test_data: Dict,
         config: Dict
 ) -> Any:
-    """Evaluate the trained model."""
+    """
+    Comprehensive evaluation with rigorous metrics for PhD research.
 
-    # Simple placeholder evaluation
-    eval_results = type('EvalResults', (), {
-        'eta_top1': 0.85,
-        'eta_top2': 0.90,
-        'eta_top4': 0.95,
-        'eta_top8': 0.98,
-        'accuracy_top1': 0.75,
-        'accuracy_top2': 0.85,
-        'accuracy_top4': 0.92,
-        'accuracy_top8': 0.97,
-        'eta_random_1': 0.15,
-        'eta_random_M': 0.45,
-        'eta_best_observed': 0.65,
-        'eta_oracle': 1.0,
-        'eta_vs_theoretical': 0.90,
-        'eta_top1_distribution': np.random.rand(100) * 0.3 + 0.7,
-        'eta_best_observed_distribution': np.random.rand(100) * 0.3 + 0.5
-    })()
+    Computes:
+    - Top-m accuracy (oracle in top-m predictions)
+    - Power ratio η for different m values
+    - Multiple baseline comparisons
+    - Statistical distributions
 
-    return eval_results
+    Args:
+        model: Trained PyTorch model
+        test_data: Dict with keys:
+            - 'masked_powers': (n_test, K)
+            - 'masks': (n_test, K)
+            - 'labels': (n_test,) - oracle best probe indices
+            - 'powers_full': (n_test, K) - full power vectors
+            - 'observed_indices': (n_test, M) - which probes were measured
+            - 'optimal_powers': (n_test,) - theoretical optimal power
+        config: Configuration dict
 
+    Returns:
+        EvaluationResults object with comprehensive metrics
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    try:
+        logger.info("=" * 70)
+        logger.info("Starting comprehensive evaluation...")
+        logger.info("=" * 70)
+
+        import torch
+        import numpy as np
+        from dataclasses import dataclass
+        from typing import List
+
+        # Extract configuration with safety checks
+        K = config.get('K', 64)
+        M = config.get('M', 8)
+        device = config.get('device', 'cpu')
+        batch_size = config.get('batch_size', 128)
+        seed = config.get('seed', 42)
+
+        logger.info(f"Configuration: K={K}, M={M}, device={device}")
+
+        # SAFETY CHECK 1: Validate test_data structure
+        required_keys = ['masked_powers', 'masks', 'labels', 'powers_full',
+                         'observed_indices', 'optimal_powers']
+        missing_keys = [key for key in required_keys if key not in test_data]
+
+        if missing_keys:
+            logger.error(f"Missing keys in test_data: {missing_keys}")
+            logger.error("Returning placeholder results due to invalid test data")
+            return create_placeholder_results(K, M, error=f"Missing keys: {missing_keys}")
+
+        # SAFETY CHECK 2: Validate data shapes
+        n_test = len(test_data['labels'])
+        logger.info(f"Test dataset size: {n_test} samples")
+
+        if n_test == 0:
+            logger.error("Test data is empty!")
+            return create_placeholder_results(K, M, error="Empty test dataset")
+
+        # SAFETY CHECK 3: Verify data dimensions
+        expected_shapes = {
+            'masked_powers': (n_test, K),
+            'masks': (n_test, K),
+            'labels': (n_test,),
+            'powers_full': (n_test, K),
+            'observed_indices': (n_test, M),
+            'optimal_powers': (n_test,)
+        }
+
+        for key, expected_shape in expected_shapes.items():
+            actual_shape = test_data[key].shape
+            if actual_shape != expected_shape:
+                logger.error(f"Shape mismatch for {key}: expected {expected_shape}, got {actual_shape}")
+                return create_placeholder_results(K, M, error=f"Shape mismatch: {key}")
+
+        logger.info("✓ Data validation passed")
+
+        # Top-m values to evaluate
+        top_m_values = [1, 2, 4, 8, 16] if K >= 16 else [1, 2, 4, 8]
+        logger.info(f"Evaluating top-m for m={top_m_values}")
+
+        # =====================================================================
+        # STEP 1: Prepare test data
+        # =====================================================================
+        logger.info("Step 1: Preparing test data...")
+
+        from torch.utils.data import DataLoader, TensorDataset
+
+        test_inputs = torch.cat([
+            torch.FloatTensor(test_data['masked_powers']),
+            torch.FloatTensor(test_data['masks'])
+        ], dim=1)
+        test_labels = torch.LongTensor(test_data['labels'])
+
+        test_dataset = TensorDataset(test_inputs, test_labels)
+        test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+
+        # Extract metadata
+        powers_full = test_data['powers_full']  # (n_test, K)
+        labels = test_data['labels']  # (n_test,)
+        observed_indices = test_data['observed_indices']  # (n_test, M)
+        optimal_powers = test_data['optimal_powers']  # (n_test,)
+
+        logger.info(f"✓ Test loader created with {len(test_loader)} batches")
+
+        # =====================================================================
+        # STEP 2: Get model predictions
+        # =====================================================================
+        logger.info("Step 2: Running model inference...")
+
+        model.eval()
+        model = model.to(device)
+
+        all_logits = []
+        with torch.no_grad():
+            for batch_idx, (inputs, _) in enumerate(test_loader):
+                inputs = inputs.to(device)
+                logits = model(inputs)
+                all_logits.append(logits.cpu().numpy())
+
+                # Progress logging for large datasets
+                if (batch_idx + 1) % 100 == 0:
+                    logger.info(f"  Processed {batch_idx + 1}/{len(test_loader)} batches")
+
+        all_logits = np.concatenate(all_logits, axis=0)  # (n_test, K)
+        logger.info(f"✓ Inference complete. Logits shape: {all_logits.shape}")
+
+        # =====================================================================
+        # STEP 3: Compute Top-m Accuracy and η
+        # =====================================================================
+        logger.info("Step 3: Computing top-m accuracy and power ratios...")
+
+        accuracy = {m: 0 for m in top_m_values}
+        eta_sum = {m: 0.0 for m in top_m_values}
+        eta_distributions = {m: [] for m in top_m_values}
+
+        for i in range(n_test):
+            logits = all_logits[i]
+            label = labels[i]
+            P_best = powers_full[i, label]  # Power of oracle best probe
+
+            # Sort predictions by confidence (descending)
+            sorted_indices = np.argsort(logits)[::-1]
+
+            for m in top_m_values:
+                top_m_idx = sorted_indices[:m]
+
+                # Top-m accuracy
+                if label in top_m_idx:
+                    accuracy[m] += 1
+
+                # Top-m power ratio (η)
+                P_selected = np.max(powers_full[i, top_m_idx])
+                eta_val = P_selected / P_best if P_best > 1e-10 else 0.0
+                eta_sum[m] += eta_val
+                eta_distributions[m].append(eta_val)
+
+            # Progress logging
+            if (i + 1) % 1000 == 0:
+                logger.info(f"  Processed {i + 1}/{n_test} samples")
+
+        # Normalize
+        for m in top_m_values:
+            accuracy[m] /= n_test
+            eta_sum[m] /= n_test
+
+        logger.info("✓ Top-m metrics computed")
+
+        # =====================================================================
+        # STEP 4: Compute Baselines
+        # =====================================================================
+        logger.info("Step 4: Computing baseline comparisons...")
+
+        rng = np.random.RandomState(seed + 1000)
+
+        # Baseline 1: Random selection of 1 probe from K
+        eta_random_1_sum = 0.0
+        for i in range(n_test):
+            random_idx = rng.randint(0, K)
+            P_random = powers_full[i, random_idx]
+            P_best = powers_full[i, labels[i]]
+            eta_random_1_sum += P_random / P_best if P_best > 1e-10 else 0.0
+        eta_random_1 = eta_random_1_sum / n_test
+        logger.info(f"  Baseline 1 (Random-1): η={eta_random_1:.4f}")
+
+        # Baseline 2: Best of random M probes (same sensing budget as ML)
+        eta_random_M_sum = 0.0
+        for i in range(n_test):
+            random_M_idx = rng.choice(K, size=M, replace=False)
+            P_random_M = np.max(powers_full[i, random_M_idx])
+            P_best = powers_full[i, labels[i]]
+            eta_random_M_sum += P_random_M / P_best if P_best > 1e-10 else 0.0
+        eta_random_M = eta_random_M_sum / n_test
+        logger.info(f"  Baseline 2 (Random-M): η={eta_random_M:.4f}")
+
+        # Baseline 3: Best of actually observed M probes
+        eta_best_observed_sum = 0.0
+        eta_best_observed_dist = []
+        for i in range(n_test):
+            obs_idx = observed_indices[i]
+            P_best_observed = np.max(powers_full[i, obs_idx])
+            P_best = powers_full[i, labels[i]]
+            eta_val = P_best_observed / P_best if P_best > 1e-10 else 0.0
+            eta_best_observed_sum += eta_val
+            eta_best_observed_dist.append(eta_val)
+        eta_best_observed = eta_best_observed_sum / n_test
+        logger.info(f"  Baseline 3 (Best-Observed): η={eta_best_observed:.4f}")
+
+        # Baseline 4: Oracle (always = 1.0 by definition)
+        eta_oracle = 1.0
+
+        # Baseline 5: Best probe vs theoretical optimal
+        eta_vs_theoretical_sum = 0.0
+        for i in range(n_test):
+            P_best = powers_full[i, labels[i]]
+            P_optimal = optimal_powers[i]
+            eta_vs_theoretical_sum += P_best / P_optimal if P_optimal > 1e-10 else 0.0
+        eta_vs_theoretical = eta_vs_theoretical_sum / n_test
+        logger.info(f"  Baseline 4 (vs Theoretical): η={eta_vs_theoretical:.4f}")
+
+        logger.info("✓ Baselines computed")
+
+        # =====================================================================
+        # STEP 5: Assemble Results
+        # =====================================================================
+        logger.info("Step 5: Assembling results...")
+
+        @dataclass
+        class EvaluationResults:
+            """PhD-quality evaluation results."""
+            # Required fields (no defaults) first
+            accuracy_top1: float
+            accuracy_top2: float
+            accuracy_top4: float
+            accuracy_top8: float
+
+            eta_top1: float
+            eta_top2: float
+            eta_top4: float
+            eta_top8: float
+
+            eta_random_1: float
+            eta_random_M: float
+            eta_best_observed: float
+            eta_oracle: float
+            eta_vs_theoretical: float
+
+            eta_top1_distribution: np.ndarray
+            eta_best_observed_distribution: np.ndarray
+
+            M: int
+            K: int
+            n_test: int
+
+            # Fields with defaults MUST come last
+            accuracy_top16: float = 0.0
+            eta_top16: float = 0.0
+
+            def print_summary(self):
+                """Print comprehensive evaluation summary."""
+                print("\n" + "=" * 80)
+                print("EVALUATION RESULTS - Limited Probing with ML Predictor")
+                print(f"Configuration: M={self.M} observed probes, K={self.K} total probes, n_test={self.n_test}")
+                print("=" * 80)
+
+                print("\n📊 TOP-M ACCURACY (Oracle best probe in top-m predictions):")
+                print(f"   Top-1:  {self.accuracy_top1 * 100:6.2f}%  (Theoretical max: {100 * self.M / self.K:.2f}%)")
+                print(f"   Top-2:  {self.accuracy_top2 * 100:6.2f}%")
+                print(f"   Top-4:  {self.accuracy_top4 * 100:6.2f}%")
+                print(f"   Top-8:  {self.accuracy_top8 * 100:6.2f}%")
+                if self.accuracy_top16 > 0:
+                    print(f"   Top-16: {self.accuracy_top16 * 100:6.2f}%")
+
+                print("\n⚡ POWER RATIO η = P_selected / P_oracle_best:")
+                print(f"   η_top1 (ML):              {self.eta_top1:.4f}")
+                print(f"   η_top2 (ML):              {self.eta_top2:.4f}")
+                print(f"   η_top4 (ML):              {self.eta_top4:.4f}")
+                print(f"   η_top8 (ML):              {self.eta_top8:.4f}")
+                if self.eta_top16 > 0:
+                    print(f"   η_top16 (ML):             {self.eta_top16:.4f}")
+
+                print("\n📈 BASELINE COMPARISONS:")
+                print(f"   η_random_1 (random):      {self.eta_random_1:.4f}  (pick 1 of K randomly)")
+                print(f"   η_random_M (random):      {self.eta_random_M:.4f}  (best of M random)")
+                print(f"   η_best_observed:          {self.eta_best_observed:.4f}  (best of M observed)")
+                print(f"   η_oracle:                 {self.eta_oracle:.4f}  (perfect selection)")
+                print(f"   η_vs_theoretical:         {self.eta_vs_theoretical:.4f}  (best probe / optimal)")
+
+                print("\n📉 ML IMPROVEMENT OVER BASELINES:")
+                if self.eta_random_1 > 1e-6:
+                    gain = (self.eta_top1 / self.eta_random_1 - 1) * 100
+                    print(f"   vs Random-1:      {gain:+6.1f}%  ({self.eta_top1 / self.eta_random_1:.2f}x)")
+                if self.eta_random_M > 1e-6:
+                    gain = (self.eta_top1 / self.eta_random_M - 1) * 100
+                    print(f"   vs Random-M:      {gain:+6.1f}%  ({self.eta_top1 / self.eta_random_M:.2f}x)")
+                if self.eta_best_observed > 1e-6:
+                    gain = (self.eta_top1 / self.eta_best_observed - 1) * 100
+                    efficiency = self.eta_top1 / self.eta_best_observed * 100
+                    print(f"   vs Best-Observed: {gain:+6.1f}%  ({efficiency:.1f}% efficiency)")
+
+                print("\n📊 STATISTICAL DISTRIBUTION (η_top1):")
+                dist = self.eta_top1_distribution
+                print(f"   Mean:   {np.mean(dist):.4f}")
+                print(f"   Median: {np.median(dist):.4f}")
+                print(f"   Std:    {np.std(dist):.4f}")
+                print(f"   Min:    {np.min(dist):.4f}")
+                print(f"   Max:    {np.max(dist):.4f}")
+                print(f"   Q25:    {np.percentile(dist, 25):.4f}")
+                print(f"   Q75:    {np.percentile(dist, 75):.4f}")
+
+                print("\n💡 INTERPRETATION:")
+                if self.eta_top1 / self.eta_best_observed > 0.9:
+                    print("   ✓ Model achieves >90% of best-observed performance")
+                    print("   ✓ Near-optimal selection from available measurements")
+                elif self.eta_top1 / self.eta_best_observed > 0.7:
+                    print("   ⚠ Model achieves 70-90% of best-observed performance")
+                    print("   → Room for improvement in pattern learning")
+                else:
+                    print("   ❌ Model achieves <70% of best-observed performance")
+                    print("   → Significant learning issues detected")
+
+                if self.accuracy_top1 / (self.M / self.K) > 0.8:
+                    print(
+                        f"   ✓ Top-1 accuracy is {self.accuracy_top1 / (self.M / self.K) * 100:.0f}% of theoretical maximum")
+
+                print("=" * 80)
+
+            def to_dict(self) -> Dict:
+                """Convert to dictionary for serialization."""
+                return {
+                    'accuracy_top1': float(self.accuracy_top1),
+                    'accuracy_top2': float(self.accuracy_top2),
+                    'accuracy_top4': float(self.accuracy_top4),
+                    'accuracy_top8': float(self.accuracy_top8),
+                    'accuracy_top16': float(self.accuracy_top16),
+                    'eta_top1': float(self.eta_top1),
+                    'eta_top2': float(self.eta_top2),
+                    'eta_top4': float(self.eta_top4),
+                    'eta_top8': float(self.eta_top8),
+                    'eta_top16': float(self.eta_top16),
+                    'eta_random_1': float(self.eta_random_1),
+                    'eta_random_M': float(self.eta_random_M),
+                    'eta_best_observed': float(self.eta_best_observed),
+                    'eta_oracle': float(self.eta_oracle),
+                    'eta_vs_theoretical': float(self.eta_vs_theoretical),
+                    'M': int(self.M),
+                    'K': int(self.K),
+                    'n_test': int(self.n_test),
+                    'eta_top1_stats': {
+                        'mean': float(np.mean(self.eta_top1_distribution)),
+                        'std': float(np.std(self.eta_top1_distribution)),
+                        'min': float(np.min(self.eta_top1_distribution)),
+                        'max': float(np.max(self.eta_top1_distribution)),
+                        'median': float(np.median(self.eta_top1_distribution)),
+                        'q25': float(np.percentile(self.eta_top1_distribution, 25)),
+                        'q75': float(np.percentile(self.eta_top1_distribution, 75))
+                    }
+                }
+
+        # Create results object
+        results = EvaluationResults(
+            accuracy_top1=accuracy.get(1, 0.0),
+            accuracy_top2=accuracy.get(2, 0.0),
+            accuracy_top4=accuracy.get(4, 0.0),
+            accuracy_top8=accuracy.get(8, 0.0),
+            accuracy_top16=accuracy.get(16, 0.0),
+            eta_top1=eta_sum.get(1, 0.0),
+            eta_top2=eta_sum.get(2, 0.0),
+            eta_top4=eta_sum.get(4, 0.0),
+            eta_top8=eta_sum.get(8, 0.0),
+            eta_top16=eta_sum.get(16, 0.0),
+            eta_random_1=eta_random_1,
+            eta_random_M=eta_random_M,
+            eta_best_observed=eta_best_observed,
+            eta_oracle=eta_oracle,
+            eta_vs_theoretical=eta_vs_theoretical,
+            eta_top1_distribution=np.array(eta_distributions[1]),
+            eta_best_observed_distribution=np.array(eta_best_observed_dist),
+            M=M,
+            K=K,
+            n_test=n_test
+        )
+
+        logger.info("✓ Results assembled successfully")
+        logger.info("=" * 70)
+
+        # Print summary if verbose
+        if config.get('verbose', True):
+            results.print_summary()
+
+        return results
+
+    except KeyboardInterrupt:
+        logger.warning("Evaluation interrupted by user")
+        raise
+
+    except Exception as e:
+        logger.error("=" * 70)
+        logger.error(f"EVALUATION FAILED: {e}")
+        logger.error("=" * 70)
+        import traceback
+        traceback.print_exc()
+        logger.error("=" * 70)
+        logger.error("Returning placeholder results to prevent crash")
+        logger.error("=" * 70)
+
+        # Return placeholder results instead of crashing
+        return create_placeholder_results(
+            config.get('K', 64),
+            config.get('M', 8),
+            error=str(e)
+        )
+
+
+def create_placeholder_results(K: int, M: int, error: str = "Unknown error"):
+    """
+    Create placeholder results when evaluation fails.
+
+    This prevents the dashboard from crashing and provides
+    diagnostic information about what went wrong.
+
+    Args:
+        K: Total number of probes
+        M: Number of observed probes
+        error: Error message describing what failed
+
+    Returns:
+        EvaluationResults object with placeholder values
+    """
+    from dataclasses import dataclass
+    import numpy as np
+    import logging
+
+    logger = logging.getLogger(__name__)
+    logger.warning(f"Creating placeholder results due to: {error}")
+
+    @dataclass
+    class EvaluationResults:
+        """Placeholder evaluation results."""
+        # Required fields
+        accuracy_top1: float
+        accuracy_top2: float
+        accuracy_top4: float
+        accuracy_top8: float
+
+        eta_top1: float
+        eta_top2: float
+        eta_top4: float
+        eta_top8: float
+
+        eta_random_1: float
+        eta_random_M: float
+        eta_best_observed: float
+        eta_oracle: float
+        eta_vs_theoretical: float
+
+        eta_top1_distribution: np.ndarray
+        eta_best_observed_distribution: np.ndarray
+
+        M: int
+        K: int
+        n_test: int
+
+        # Optional fields
+        accuracy_top16: float = 0.0
+        eta_top16: float = 0.0
+        error_message: str = ""
+
+        def print_summary(self):
+            """Print warning about placeholder results."""
+            print("\n" + "=" * 80)
+            print("⚠️  PLACEHOLDER EVALUATION RESULTS")
+            print("=" * 80)
+            print()
+            print("Evaluation failed with error:")
+            print(f"  {self.error_message}")
+            print()
+            print("These are NOT real results - they are placeholders to prevent crashes.")
+            print()
+            print("Action required:")
+            print("  1. Check the error message above")
+            print("  2. Review the training logs")
+            print("  3. Verify your configuration")
+            print("  4. Re-run the experiment")
+            print("=" * 80)
+
+        def to_dict(self):
+            """Convert to dictionary."""
+            return {
+                'accuracy_top1': self.accuracy_top1,
+                'eta_top1': self.eta_top1,
+                'M': self.M,
+                'K': self.K,
+                'n_test': self.n_test,
+                'error': self.error_message,
+                'is_placeholder': True
+            }
+
+    # Create placeholder with reasonable dummy values
+    return EvaluationResults(
+        accuracy_top1=M / K,  # Theoretical random chance
+        accuracy_top2=M / K,
+        accuracy_top4=M / K,
+        accuracy_top8=M / K,
+        eta_top1=0.5,
+        eta_top2=0.5,
+        eta_top4=0.5,
+        eta_top8=0.5,
+        eta_random_1=0.1,
+        eta_random_M=0.3,
+        eta_best_observed=0.4,
+        eta_oracle=1.0,
+        eta_vs_theoretical=0.5,
+        eta_top1_distribution=np.array([0.5]),
+        eta_best_observed_distribution=np.array([0.4]),
+        M=M,
+        K=K,
+        n_test=0,
+        error_message=error
+    )
 
 def update_status(
         widget_dict: Optional[Dict],

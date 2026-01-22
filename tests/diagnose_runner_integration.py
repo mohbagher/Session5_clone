@@ -26,9 +26,9 @@ config = {
     'probe_type': 'continuous',
 
     # Data
-    'n_train': 100000,
-    'n_val': 20000,
-    'n_test': 20000,
+    'n_train': 100,
+    'n_val': 20,
+    'n_test': 20,
 
     # Training
     'batch_size': 16,

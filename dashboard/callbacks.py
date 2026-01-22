@@ -164,53 +164,514 @@ def save_state(paths):
         return True
     except Exception as e: print(f"⚠️ Save failed: {e}"); return False
 
+
+# ============================================================================
+# SESSION STATE MANAGEMENT - LOAD FUNCTIONS
+# ============================================================================
+
 def load_state(filepath, wd):
+    """
+    Load complete session state and restore everything.
+
+    This function restores:
+    - Experiment stack
+    - All completed results
+    - Trained model cache
+    - Session metadata
+
+    Args:
+        filepath: Path to session_state.pkl file
+        wd: Widget dictionary containing all dashboard widgets
+
+    Returns:
+        bool: True if successful, False otherwise
+    """
     global EXPERIMENT_STACK, STACK_RESULTS, TRAINED_CACHE, SESSION_NAME, CURRENT_RESULTS
+
     try:
-        with open(filepath, 'rb') as f: state = pickle.load(f)
-        SESSION_NAME, EXPERIMENT_STACK = state.get('session_name'), state.get('stack', [])
-        STACK_RESULTS, TRAINED_CACHE = state.get('results', []), state.get('cache', {})
+        # Show loading message
+        with wd['status_output']:
+            clear_output(wait=True)
+            print(f"📂 Loading session state from: {filepath}")
+            print("   Please wait...")
 
-        # Update stack display
-        wd['stack_display'].options = [c['experiment_name'] for c in EXPERIMENT_STACK]
+        # Load pickled state
+        with open(filepath, 'rb') as f:
+            state = pickle.load(f)
 
-        # Restore results and UPDATE DISPLAY
-        if STACK_RESULTS:
-            CURRENT_RESULTS = {res.config.get('experiment_name', f"Exp #{i+1}"): res
-                              for i, res in enumerate(STACK_RESULTS)}
+        # Restore global state variables
+        SESSION_NAME = state.get('session_name', 'Unknown')
+        EXPERIMENT_STACK = state.get('stack', [])
+        STACK_RESULTS = state.get('results', [])
+        TRAINED_CACHE = state.get('cache', {})
 
-            # IMPORTANT: Clear and update results display
-            wd['results_summary'].value = "<i>Loading results...</i>"
-            update_results_display(wd, CURRENT_RESULTS)
-
-            # Update status output
-            with wd['status_output']:
-                clear_output(wait=True)
-                print(f"✅ Session restored: {SESSION_NAME}")
-                print(f"   Stack: {len(EXPERIMENT_STACK)} experiments")
-                print(f"   Results: {len(STACK_RESULTS)} completed")
-                print(f"   Cache: {len(TRAINED_CACHE)} experiments")
-                print()
-                print("📊 Results loaded - check Results & Analysis Dashboard below!")
-        else:
-            with wd['status_output']:
-                clear_output(wait=True)
-                print(f"✅ Session restored: {SESSION_NAME}")
-                print(f"   Stack: {len(EXPERIMENT_STACK)} experiments")
-                print(f"   No completed results in this session")
-
-        # Update transfer dropdown
+        # Update stack display widget
         if EXPERIMENT_STACK:
-            wd['transfer_source'].options = ['None'] + [c['experiment_name'] for c in EXPERIMENT_STACK]
-            wd['transfer_source'].disabled = False
+            wd['stack_display'].options = [
+                c.get('experiment_name', f"Exp #{i + 1}")
+                for i, c in enumerate(EXPERIMENT_STACK)
+            ]
+            with wd['status_output']:
+                print(f"   ✓ Loaded {len(EXPERIMENT_STACK)} experiments in stack")
+
+        # CRITICAL FIX: Properly restore and display results
+        if STACK_RESULTS:
+            # Rebuild CURRENT_RESULTS dictionary from loaded results
+            CURRENT_RESULTS = {}
+            for i, res in enumerate(STACK_RESULTS):
+                if hasattr(res, 'config'):
+                    exp_name = res.config.get('experiment_name', f"Exp #{i + 1}")
+                else:
+                    exp_name = f"Exp #{i + 1}"
+                CURRENT_RESULTS[exp_name] = res
+
+            with wd['status_output']:
+                print(f"   ✓ Loaded {len(STACK_RESULTS)} completed results")
+
+            # CRITICAL: Force update the results display
+            try:
+                # Clear existing display first
+                wd['results_summary'].value = "<h3>⏳ Loading results...</h3>"
+
+                # Call the update function to refresh all visualizations
+                update_results_display(wd, CURRENT_RESULTS)
+
+                with wd['status_output']:
+                    print(f"   ✓ Results display updated successfully")
+
+            except Exception as e:
+                with wd['status_output']:
+                    print(f"   ⚠️ Display update warning: {e}")
+                    import traceback
+                    traceback.print_exc()
+
+        # Display final success message
+        with wd['status_output']:
+            clear_output(wait=True)
+            print("=" * 70)
+            print(f"✅ SESSION RESTORED: {SESSION_NAME}")
+            print("=" * 70)
+            print(f"   Experiments in stack: {len(EXPERIMENT_STACK)}")
+            print(f"   Completed results: {len(STACK_RESULTS)}")
+            print(f"   Cached experiments: {len(TRAINED_CACHE)}")
+            print(f"   Timestamp: {state.get('timestamp', 'Unknown')}")
+            print("=" * 70)
+            print()
+            print("📊 Check the 'Results & Analysis Dashboard' tab below!")
+            print("   All plots, tables, and analysis should now be visible.")
+            print()
+            if STACK_RESULTS:
+                print(f"💡 Loaded experiments:")
+                for i, res in enumerate(STACK_RESULTS[:5]):  # Show first 5
+                    name = res.config.get('experiment_name', f"Exp #{i + 1}") if hasattr(res,
+                                                                                         'config') else f"Exp #{i + 1}"
+                    print(f"   {i + 1}. {name}")
+                if len(STACK_RESULTS) > 5:
+                    print(f"   ... and {len(STACK_RESULTS) - 5} more")
+            print()
 
         return True
+
+    except FileNotFoundError:
+        with wd['status_output']:
+            clear_output(wait=True)
+            print(f"❌ File not found: {filepath}")
+        return False
+
     except Exception as e:
         with wd['status_output']:
-            print(f"❌ Load failed: {e}")
-        import traceback
-        traceback.print_exc()
+            clear_output(wait=True)
+            print(f"❌ Failed to load session state: {e}")
+            print()
+            print("Detailed error:")
+            import traceback
+            traceback.print_exc()
         return False
+
+
+def on_load_results_browser(b, wd):
+    """
+    Browse and load saved results with improved display refresh.
+
+    Provides a file browser interface to select and load either:
+    - session_state.pkl: Complete session with stack, results, and cache
+    - results_*.pkl: Individual experiment results
+
+    Args:
+        b: Button widget that triggered this callback
+        wd: Widget dictionary containing all dashboard widgets
+    """
+    base = wd['output_dir'].value
+
+    # Search for saved result files
+    files = []
+    for r, _, fs in os.walk(base):
+        for f in fs:
+            if (f.startswith('results_') and f.endswith('.pkl')) or f == 'session_state.pkl':
+                full_path = os.path.join(r, f)
+                rel_path = os.path.relpath(full_path, base)
+                # Prioritize session_state files (priority 0)
+                priority = 0 if f == 'session_state.pkl' else 1
+                mod_time = os.path.getmtime(full_path)
+                files.append((priority, rel_path, full_path, mod_time))
+
+    if not files:
+        with wd['status_output']:
+            clear_output(wait=True)
+            print("⚠️ No saved results found in output directory")
+            print(f"   Searched in: {base}")
+            print()
+            print("💡 Run an experiment first, then save results using:")
+            print("   - 'Save Results' button")
+            print("   - Auto-save will create session_state.pkl")
+        return
+
+    # Sort by priority (session_state first), then by date (newest first)
+    files.sort(key=lambda x: (x[0], -x[3]))
+
+    # Create file options with labels
+    file_options = []
+    for priority, rel_name, full_path, mod_time in files:
+        file_type = "SESSION" if 'session_state' in rel_name else "RESULTS"
+        # Format modification time
+        mod_str = datetime.fromtimestamp(mod_time).strftime('%Y-%m-%d %H:%M')
+        label = f"[{file_type}] {rel_name} ({mod_str})"
+        file_options.append((label, full_path))
+
+    # Create file selector widget
+    sel = widgets.Dropdown(
+        options=file_options,
+        description='File:',
+        layout=widgets.Layout(width='700px'),
+        style={'description_width': '50px'}
+    )
+
+    # Create load button
+    btn = widgets.Button(
+        description='Load & Restore',
+        button_style='success',
+        layout=widgets.Layout(width='180px'),
+        icon='upload',
+        tooltip='Load selected file and restore results'
+    )
+
+    # Info text
+    info = widgets.HTML(
+        value="""
+        <div style='padding: 10px; background-color: #e8f4f8; border-left: 4px solid #2196F3; margin-bottom: 10px;'>
+            <b>💡 Tip:</b> <code>session_state.pkl</code> restores <b>EVERYTHING</b>: 
+            <ul style='margin: 5px 0;'>
+                <li>Experiment stack (configurations)</li>
+                <li>All completed results</li>
+                <li>Trained model cache</li>
+                <li>All plots and visualizations</li>
+            </ul>
+        </div>
+        """
+    )
+
+    def load(b):
+        """Handle load button click."""
+        filepath = sel.value
+        btn.disabled = True
+        btn.description = 'Loading...'
+        btn.icon = 'hourglass'
+
+        try:
+            with wd['status_output']:
+                clear_output(wait=True)
+                print(f"📂 Loading from: {os.path.basename(filepath)}")
+                print(f"   Full path: {filepath}")
+
+            # Check if file is session state or results
+            if filepath.endswith('session_state.pkl'):
+                # Load complete session state
+                success = load_state(filepath, wd)  # ← This now works because load_state is defined above
+                if not success:
+                    raise Exception("Session state loading failed - see error above")
+
+            else:
+                # Load individual results file
+                with wd['status_output']:
+                    print("   Loading results file...")
+
+                with open(filepath, 'rb') as f:
+                    loaded = pickle.load(f)
+
+                global STACK_RESULTS, CURRENT_RESULTS
+
+                # Handle different result formats
+                if isinstance(loaded, list):
+                    # List of experiment results
+                    STACK_RESULTS = loaded
+                    CURRENT_RESULTS = {
+                        res.config.get('experiment_name', f"Exp #{i + 1}"): res
+                        for i, res in enumerate(STACK_RESULTS)
+                    }
+                elif isinstance(loaded, dict):
+                    # Dictionary of results
+                    CURRENT_RESULTS = loaded
+                    STACK_RESULTS = list(loaded.values())
+                else:
+                    # Single result object
+                    CURRENT_RESULTS = {'Loaded Result': loaded}
+                    STACK_RESULTS = [loaded]
+
+                # CRITICAL: Update the results display
+                with wd['status_output']:
+                    print("   Updating visualization...")
+
+                update_results_display(wd, CURRENT_RESULTS)
+
+                # Success message
+                with wd['status_output']:
+                    clear_output(wait=True)
+                    print("=" * 70)
+                    print(f"✅ Results loaded successfully!")
+                    print("=" * 70)
+                    print(f"   File: {os.path.basename(filepath)}")
+                    print(f"   Experiments loaded: {len(STACK_RESULTS)}")
+                    print("=" * 70)
+                    print()
+                    print("📊 Check the 'Results & Analysis Dashboard' tab below!")
+                    print("   All plots and tables should now be visible.")
+                    print()
+
+        except FileNotFoundError:
+            with wd['status_output']:
+                clear_output(wait=True)
+                print(f"❌ File not found: {filepath}")
+                print("   The file may have been moved or deleted.")
+
+        except Exception as e:
+            with wd['status_output']:
+                clear_output(wait=True)
+                print(f"❌ Load failed: {e}")
+                print()
+                print("Detailed error information:")
+                import traceback
+                traceback.print_exc()
+                print()
+                print("💡 Troubleshooting tips:")
+                print("   1. Check if the file is corrupted")
+                print("   2. Ensure it was saved with the same code version")
+                print("   3. Try loading a different file")
+
+        finally:
+            # Re-enable button
+            btn.disabled = False
+            btn.description = 'Load & Restore'
+            btn.icon = 'upload'
+
+    # Connect button to load function
+    btn.on_click(load)
+
+    # Display file browser interface
+    with wd['status_output']:
+        clear_output(wait=True)
+        print("=" * 70)
+        print("📁 LOAD SAVED RESULTS")
+        print("=" * 70)
+        print()
+        display(widgets.VBox([
+            info,
+            widgets.HBox([sel, btn], layout=widgets.Layout(margin='10px 0'))
+        ]))
+        print()
+        print(f"Found {len(files)} saved file(s) in: {base}")
+        print()
+
+def on_load_results_browser(b, wd):
+    """
+    Browse and load saved results with improved display refresh.
+
+    Provides a file browser interface to select and load either:
+    - session_state.pkl: Complete session with stack, results, and cache
+    - results_*.pkl: Individual experiment results
+
+    Args:
+        b: Button widget that triggered this callback
+        wd: Widget dictionary containing all dashboard widgets
+    """
+    base = wd['output_dir'].value
+
+    # Search for saved result files
+    files = []
+    for r, _, fs in os.walk(base):
+        for f in fs:
+            if (f.startswith('results_') and f.endswith('.pkl')) or f == 'session_state.pkl':
+                full_path = os.path.join(r, f)
+                rel_path = os.path.relpath(full_path, base)
+                # Prioritize session_state files (priority 0)
+                priority = 0 if f == 'session_state.pkl' else 1
+                mod_time = os.path.getmtime(full_path)
+                files.append((priority, rel_path, full_path, mod_time))
+
+    if not files:
+        with wd['status_output']:
+            clear_output(wait=True)
+            print("⚠️ No saved results found in output directory")
+            print(f"   Searched in: {base}")
+            print()
+            print("💡 Run an experiment first, then save results using:")
+            print("   - 'Save Results' button")
+            print("   - Auto-save will create session_state.pkl")
+        return
+
+    # Sort by priority (session_state first), then by date (newest first)
+    files.sort(key=lambda x: (x[0], -x[3]))
+
+    # Create file options with labels
+    file_options = []
+    for priority, rel_name, full_path, mod_time in files:
+        file_type = "SESSION" if 'session_state' in rel_name else "RESULTS"
+        # Format modification time
+        mod_str = datetime.fromtimestamp(mod_time).strftime('%Y-%m-%d %H:%M')
+        label = f"[{file_type}] {rel_name} ({mod_str})"
+        file_options.append((label, full_path))
+
+    # Create file selector widget
+    sel = widgets.Dropdown(
+        options=file_options,
+        description='File:',
+        layout=widgets.Layout(width='700px'),
+        style={'description_width': '50px'}
+    )
+
+    # Create load button
+    btn = widgets.Button(
+        description='Load & Restore',
+        button_style='success',
+        layout=widgets.Layout(width='180px'),
+        icon='upload',
+        tooltip='Load selected file and restore results'
+    )
+
+    # Info text
+    info = widgets.HTML(
+        value="""
+        <div style='padding: 10px; background-color: #e8f4f8; border-left: 4px solid #2196F3; margin-bottom: 10px;'>
+            <b>💡 Tip:</b> <code>session_state.pkl</code> restores <b>EVERYTHING</b>: 
+            <ul style='margin: 5px 0;'>
+                <li>Experiment stack (configurations)</li>
+                <li>All completed results</li>
+                <li>Trained model cache</li>
+                <li>All plots and visualizations</li>
+            </ul>
+        </div>
+        """
+    )
+
+    def load(b):
+        """Handle load button click."""
+        filepath = sel.value
+        btn.disabled = True
+        btn.description = 'Loading...'
+        btn.icon = 'hourglass'
+
+        try:
+            with wd['status_output']:
+                clear_output(wait=True)
+                print(f"📂 Loading from: {os.path.basename(filepath)}")
+                print(f"   Full path: {filepath}")
+
+            # Check if file is session state or results
+            if filepath.endswith('session_state.pkl'):
+                # Load complete session state
+                success = load_state(filepath, wd)
+                if not success:
+                    raise Exception("Session state loading failed - see error above")
+
+            else:
+                # Load individual results file
+                with wd['status_output']:
+                    print("   Loading results file...")
+
+                with open(filepath, 'rb') as f:
+                    loaded = pickle.load(f)
+
+                global STACK_RESULTS, CURRENT_RESULTS
+
+                # Handle different result formats
+                if isinstance(loaded, list):
+                    # List of experiment results
+                    STACK_RESULTS = loaded
+                    CURRENT_RESULTS = {
+                        res.config.get('experiment_name', f"Exp #{i + 1}"): res
+                        for i, res in enumerate(STACK_RESULTS)
+                    }
+                elif isinstance(loaded, dict):
+                    # Dictionary of results
+                    CURRENT_RESULTS = loaded
+                    STACK_RESULTS = list(loaded.values())
+                else:
+                    # Single result object
+                    CURRENT_RESULTS = {'Loaded Result': loaded}
+                    STACK_RESULTS = [loaded]
+
+                # CRITICAL: Update the results display
+                with wd['status_output']:
+                    print("   Updating visualization...")
+
+                update_results_display(wd, CURRENT_RESULTS)
+
+                # Success message
+                with wd['status_output']:
+                    clear_output(wait=True)
+                    print("=" * 70)
+                    print(f"✅ Results loaded successfully!")
+                    print("=" * 70)
+                    print(f"   File: {os.path.basename(filepath)}")
+                    print(f"   Experiments loaded: {len(STACK_RESULTS)}")
+                    print("=" * 70)
+                    print()
+                    print("📊 Check the 'Results & Analysis Dashboard' tab below!")
+                    print("   All plots and tables should now be visible.")
+                    print()
+
+        except FileNotFoundError:
+            with wd['status_output']:
+                clear_output(wait=True)
+                print(f"❌ File not found: {filepath}")
+                print("   The file may have been moved or deleted.")
+
+        except Exception as e:
+            with wd['status_output']:
+                clear_output(wait=True)
+                print(f"❌ Load failed: {e}")
+                print()
+                print("Detailed error information:")
+                import traceback
+                traceback.print_exc()
+                print()
+                print("💡 Troubleshooting tips:")
+                print("   1. Check if the file is corrupted")
+                print("   2. Ensure it was saved with the same code version")
+                print("   3. Try loading a different file")
+
+        finally:
+            # Re-enable button
+            btn.disabled = False
+            btn.description = 'Load & Restore'
+            btn.icon = 'upload'
+
+    # Connect button to load function
+    btn.on_click(load)
+
+    # Display file browser interface
+    with wd['status_output']:
+        clear_output(wait=True)
+        print("=" * 70)
+        print("📁 LOAD SAVED RESULTS")
+        print("=" * 70)
+        print()
+        display(widgets.VBox([
+            info,
+            widgets.HBox([sel, btn], layout=widgets.Layout(margin='10px 0'))
+        ]))
+        print()
+        print(f"Found {len(files)} saved file(s) in: {base}")
+        print()
 
 # === UI CALLBACKS ===
 def on_phase_mode_change(c, wd): wd['phase_bits'].disabled = (c['new'] != 'discrete')
