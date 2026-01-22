@@ -74,7 +74,15 @@ class GeometricCoupling(CouplingModel):
         Returns:
             Coupled reflection coefficients
         """
-        C = self.get_coupling_matrix(geometry, **kwargs)
+        # Get N from gamma shape
+        N = gamma_uncoupled.shape[0]
+        
+        # Get coupling matrix
+        if geometry is not None:
+            C = self.get_coupling_matrix(geometry, **kwargs)
+        else:
+            # Use N from gamma if no geometry provided
+            C = self.get_coupling_matrix(None, N=N, **kwargs)
         
         # Handle different input shapes
         if gamma_uncoupled.ndim == 1:
