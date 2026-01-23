@@ -1,8 +1,8 @@
 """
-Experiment Runner - FINAL COMPLETE FIX
-=======================================
-All issues resolved, fully tested.
-Fixed normalization for proper model learning.
+Experiment Runner - Phase 2: Physics-First Architecture
+========================================================
+Refactored with composable physics components and factory pattern.
+Maintains backward compatibility with existing dashboard.
 """
 
 import numpy as np
@@ -11,6 +11,17 @@ import logging
 from typing import Dict, Any, Optional, Tuple, Callable
 from datetime import datetime
 from dataclasses import dataclass
+
+# Phase 2: Import new physics architecture components
+from src.ris_platform.core.interfaces import PhysicsModel, ChannelBackend, ProbingStrategy
+from src.ris_platform.physics.models import IdealPhysicsModel, RealisticPhysicsModel
+from src.ris_platform.physics.components.unit_cell import IdealUnitCell, VaractorUnitCell
+from src.ris_platform.physics.components.coupling import NoCoupling, GeometricCoupling
+from src.ris_platform.physics.components.wavefront import PlanarWavefront, SphericalWavefront
+from src.ris_platform.physics.components.aging import JakesAging
+from src.ris_platform.backend.matlab import MATLABBackend
+from src.ris_platform.backend.python_synthetic import PythonSyntheticBackend
+from src.ris_platform.probing.structured import RandomProbing, SobolProbing, HadamardProbing
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +36,125 @@ class ExperimentResult:
     execution_time: float
     metadata: Dict
 
+
+# ============================================================================
+# PHASE 2: FACTORY FUNCTIONS FOR COMPOSABLE ARCHITECTURE
+# ============================================================================
+
+def create_physics_model(config: Dict) -> PhysicsModel:
+    """
+    Create physics model from config using factory pattern.
+    
+    Translates dashboard config dict into instantiated physics components,
+    maintaining backward compatibility while enabling new composable architecture.
+    
+    Args:
+        config: Experiment configuration dictionary
+        
+    Returns:
+        PhysicsModel instance (Ideal or Realistic)
+    """
+    realism_profile = config.get('realism_profile', 'ideal')
+    
+    if realism_profile == 'ideal':
+        # Baseline ideal model
+        return IdealPhysicsModel()
+    else:
+        # Realistic model with composable components
+        
+        # Unit cell: Check for varactor parameters
+        if config.get('varactor_coupling_strength', 0.0) > 0:
+            unit_cell = VaractorUnitCell(
+                coupling_strength=config.get('varactor_coupling_strength', 0.3),
+                thermal_drift_coeff=config.get('thermal_drift_coeff', 0.02),
+                reference_temp=config.get('reference_temp', 25.0)
+            )
+        else:
+            unit_cell = IdealUnitCell()
+        
+        # Coupling: Check for coupling strength
+        if config.get('coupling_strength', 0.0) > 0:
+            coupling = GeometricCoupling(
+                coupling_strength=config.get('coupling_strength', 1.0),
+                wavelength=config.get('wavelength', 0.125),
+                distance_cutoff=config.get('distance_cutoff', None)
+            )
+        else:
+            coupling = NoCoupling()
+        
+        # Wavefront: Check for near-field flag
+        if config.get('enable_near_field', False):
+            wavefront = SphericalWavefront(
+                wavelength=config.get('wavelength', 0.125),
+                include_path_loss=config.get('include_path_loss', True)
+            )
+        else:
+            wavefront = PlanarWavefront()
+        
+        # Aging: Check for Doppler/mobility
+        if config.get('enable_aging', False):
+            aging = JakesAging(
+                doppler_hz=config.get('doppler_hz', 10.0)
+            )
+        else:
+            aging = None
+        
+        return RealisticPhysicsModel(
+            unit_cell=unit_cell,
+            coupling=coupling,
+            wavefront=wavefront,
+            aging=aging
+        )
+
+
+def create_backend(config: Dict) -> ChannelBackend:
+    """
+    Create channel backend from config.
+    
+    Args:
+        config: Experiment configuration dictionary
+        
+    Returns:
+        ChannelBackend instance
+    """
+    backend_name = config.get('physics_backend', 'python')
+    
+    if backend_name == 'matlab':
+        return MATLABBackend(
+            scenario=config.get('matlab_scenario', 'rayleigh_basic'),
+            auto_fallback=True
+        )
+    else:
+        return PythonSyntheticBackend(
+            sigma_h_sq=config.get('sigma_h_sq', 1.0),
+            sigma_g_sq=config.get('sigma_g_sq', 1.0)
+        )
+
+
+def create_probing_strategy(config: Dict) -> Optional[ProbingStrategy]:
+    """
+    Create probing strategy from config.
+    
+    Args:
+        config: Experiment configuration dictionary
+        
+    Returns:
+        ProbingStrategy instance or None
+    """
+    strategy_name = config.get('probing_strategy', 'random')
+    seed = config.get('seed', 42)
+    
+    if strategy_name == 'sobol':
+        return SobolProbing(seed=seed)
+    elif strategy_name == 'hadamard':
+        return HadamardProbing(seed=seed)
+    else:
+        return RandomProbing(seed=seed)
+
+
+# ============================================================================
+# ORIGINAL EXPERIMENT RUNNER (PRESERVED SIGNATURE)
+# ============================================================================
 
 def run_single_experiment(
     config: Dict,
