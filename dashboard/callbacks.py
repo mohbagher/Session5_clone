@@ -154,15 +154,28 @@ def ensure_paths(wd):
 
 # === STATE PERSISTENCE ===
 def save_state(paths):
+    """Save complete session state including all results."""
+    global SESSION_NAME, EXPERIMENT_STACK, STACK_RESULTS, TRAINED_CACHE
     try:
-        state = {'session_name': SESSION_NAME, 'stack': EXPERIMENT_STACK, 'results': STACK_RESULTS,
-                'cache': TRAINED_CACHE, 'timestamp': datetime.now().isoformat()}
-        with open(paths['state'], 'wb') as f: pickle.dump(state, f)
-        # Auto-save stack JSON
-        with open(Path(paths['stacks'])/f"auto_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json", 'w') as f:
-            json.dump({'stack': EXPERIMENT_STACK, 'count': len(EXPERIMENT_STACK)}, f, indent=2)
+        state = {
+            'session_name': SESSION_NAME,
+            'stack': EXPERIMENT_STACK,
+            'results': STACK_RESULTS,  # This ensures metrics are saved!
+            'cache': TRAINED_CACHE,
+            'timestamp': datetime.now().isoformat(),
+            'version': '2.0'
+        }
+        with open(paths['state'], 'wb') as f:
+            pickle.dump(state, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+        # Also save a human-readable JSON of the configurations
+        stack_json = Path(paths['stacks']) / f"auto_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        with open(stack_json, 'w') as f:
+            json.dump({'stack': EXPERIMENT_STACK}, f, indent=2)
         return True
-    except Exception as e: print(f"⚠️ Save failed: {e}"); return False
+    except Exception as e:
+        print(f"❌ Save failed: {e}")
+        return False
 
 
 # ============================================================================
@@ -708,6 +721,70 @@ def update_param_count_preview(wd):
     except: pass
 
 # === STACK MANAGEMENT ===
+def on_stack_item_selected(change, wd):
+    with wd['status_output']:
+        print(f"DEBUG: Clicked item is {change.get('new')}")  # Check if this
+    """Handle stack item selection - load configuration into dashboard."""
+    global EXPERIMENT_STACK
+    try:
+        selected_name = change['new']
+        if not selected_name: return
+
+        selected_config = next((c for c in EXPERIMENT_STACK if c.get('experiment_name') == selected_name), None)
+        if not selected_config:
+            with wd['status_output']:
+                clear_output(wait=True)
+                print(f"⚠️ Could not find experiment: {selected_name}")
+            return
+
+        # Mapping config keys to your widgets
+        widget_mapping = {
+            'N': 'N', 'K': 'K', 'M': 'M', 'probe_type': 'probe_type',
+            'P_tx': 'P_tx', 'sigma_h_sq': 'sigma_h_sq', 'sigma_g_sq': 'sigma_g_sq',
+            'n_train': 'n_train', 'n_val': 'n_val', 'n_test': 'n_test',
+            'seed': 'seed', 'model_preset': 'model_preset', 'batch_size': 'batch_size',
+            'learning_rate': 'learning_rate', 'n_epochs': 'n_epochs'
+        }
+
+        for cfg_key, wd_key in widget_mapping.items():
+            if cfg_key in selected_config and wd_key in wd:
+                wd[wd_key].value = selected_config[cfg_key]
+
+        with wd['status_output']:
+            clear_output(wait=True)
+            print(f"✅ Configuration Loaded: {selected_name}")
+            print(
+                f"   System: N={selected_config.get('N')}, K={selected_config.get('K')}, M={selected_config.get('M')}")
+    except Exception as e:
+        with wd['status_output']:
+            print(f"❌ Load Error: {e}")
+
+
+def on_update_stack_item(b, wd):
+    """Update selected stack item with current dashboard configuration."""
+    global EXPERIMENT_STACK
+    try:
+        selected_name = wd['stack_display'].value
+        if not selected_name:
+            with wd['status_output']: print("⚠️ Select an item from the stack first"); return
+
+        selected_index = next((i for i, c in enumerate(EXPERIMENT_STACK) if c.get('experiment_name') == selected_name),
+                              None)
+        if selected_index is None: return
+
+        from dashboard.config_manager import config_to_dict
+        updated_config = config_to_dict(wd)
+        updated_config['experiment_name'] = selected_name  # Keep the name
+
+        EXPERIMENT_STACK[selected_index] = updated_config
+        if SESSION_PATHS: save_state(SESSION_PATHS)
+
+        with wd['status_output']:
+            clear_output(wait=True)
+            print(f"✅ Updated: {selected_name} in stack.")
+    except Exception as e:
+        with wd['status_output']:
+            print(f"❌ Update Error: {e}")
 def on_add_to_stack(b, wd):
     global EXPERIMENT_STACK
     cfg = config_to_dict(wd)
@@ -780,6 +857,14 @@ def on_clear_stack(b, wd):
     with wd['status_output']: print("🗑️ Cleared")
 
 # === SAVE/LOAD ===
+def on_save_session_complete(b, wd):
+    """Manually save complete session including all results."""
+    global SESSION_PATHS, STACK_RESULTS
+    paths = ensure_paths(wd)
+    with wd['status_output']:
+        print(f"💾 Saving session with {len(STACK_RESULTS)} results...")
+        if save_state(paths):
+            print("✅ Session saved! Next time you load, all results will appear.")
 def on_save_stack(b, wd):
     if not EXPERIMENT_STACK:
         with wd['status_output']: print("⚠️ Empty"); return
@@ -961,9 +1046,11 @@ def on_resume_training(b, wd):
 
 # === EXPERIMENT EXECUTION ===
 def on_run_stack(b, wd):
-    global STACK_RESULTS, CURRENT_RESULTS
+    """Run all experiments in the stack and auto-save results."""
+    global STACK_RESULTS, CURRENT_RESULTS, SESSION_PATHS
     if not EXPERIMENT_STACK:
         with wd['status_output']: print("⚠️ Empty stack"); return
+
     paths = ensure_paths(wd)
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     wd['status_output'].clear_output()
@@ -972,8 +1059,8 @@ def on_run_stack(b, wd):
     with wd['status_output']:
         print(f"🚀 Running {len(EXPERIMENT_STACK)} experiments...\n")
         for i, cfg in enumerate(EXPERIMENT_STACK):
-            exp_name = cfg.get('experiment_name', f"Exp #{i+1}")
-            print(f"▶️ [{i+1}/{len(EXPERIMENT_STACK)}] {exp_name}")
+            exp_name = cfg.get('experiment_name', f"Exp #{i + 1}")
+            print(f"▶️ [{i + 1}/{len(EXPERIMENT_STACK)}] {exp_name}")
 
             # Check cache first
             cached = get_cached(cfg)
@@ -988,32 +1075,35 @@ def on_run_stack(b, wd):
             if trans not in ['None', None]:
                 try:
                     src_name = trans
-                    src_idx = next((j for j, c in enumerate(EXPERIMENT_STACK) if c['experiment_name'] == src_name), None)
+                    src_idx = next((j for j, c in enumerate(EXPERIMENT_STACK) if c['experiment_name'] == src_name),
+                                   None)
                     if src_idx is not None and src_idx < len(STACK_RESULTS):
                         print(f"   ↪ Transfer from: {src_name}")
                         initial_weights = STACK_RESULTS[src_idx].model_state
-                except: pass
+                except:
+                    pass
 
             try:
                 def progress_cb(epoch, total, metrics):
-                    wd['progress_bar'].value = int((epoch/total)*100)
+                    wd['progress_bar'].value = int((epoch / total) * 100)
                     wd['live_metrics'].value = (f"<b>{exp_name}</b><br>Epoch {epoch}/{total}<br>"
-                                               f"Loss: {metrics.get('val_loss',0):.4f}<br>"
-                                               f"η: {metrics.get('val_eta',0):.4f}")
+                                                f"Loss: {metrics.get('val_loss', 0):.4f}<br>"
+                                                f"η: {metrics.get('val_eta', 0):.4f}")
 
                 # Try with progress_callback, fall back if not supported
                 try:
                     result = run_single_experiment(cfg, progress_callback=progress_cb,
-                                                 initial_weights=initial_weights, verbose=False)
+                                                   initial_weights=initial_weights, verbose=False)
                 except TypeError:
                     # Old version without progress_callback support
                     result = run_single_experiment(cfg, initial_weights=initial_weights, verbose=False)
+
                 STACK_RESULTS.append(result)
                 cache(cfg, result)  # Cache for future
 
                 # Save model with custom name
                 safe_name = "".join(c if c.isalnum() or c in '_-' else '_' for c in exp_name)
-                model_file = Path(paths['models'])/f"{safe_name}_{timestamp}.pt"
+                model_file = Path(paths['models']) / f"{safe_name}_{timestamp}.pt"
                 torch.save(result.model_state, model_file)
 
                 # FIXED: Check if evaluation exists before accessing
@@ -1025,25 +1115,39 @@ def on_run_stack(b, wd):
                 else:
                     print(f"   ⚠️ Experiment failed - no evaluation\n")
 
-
             except Exception as e:
                 print(f"   ❌ Failed: {e}\n")
                 import traceback
                 traceback.print_exc()
 
-        # Update display
-        CURRENT_RESULTS = {res.config.get('experiment_name', f"Exp #{i+1}"): res
-                          for i, res in enumerate(STACK_RESULTS)}
+        # Update display with all results from this run
+        CURRENT_RESULTS = {res.config.get('experiment_name', f"Exp #{i + 1}"): res
+                           for i, res in enumerate(STACK_RESULTS)}
         update_results_display(wd, CURRENT_RESULTS)
 
-        # Auto-save everything
-        results_file = Path(paths['results'])/f"results_{timestamp}.pkl"
-        with open(results_file, 'wb') as f: pickle.dump(STACK_RESULTS, f)
-        save_state(paths)
+        # 1. Save standard results pickle file
+        results_file = Path(paths['results']) / f"results_{timestamp}.pkl"
+        with open(results_file, 'wb') as f:
+            pickle.dump(STACK_RESULTS, f)
 
+        # 2. Trigger Complete Session Auto-Save
+        if SESSION_PATHS:
+            print("\n" + "=" * 70)
+            print("💾 Auto-saving session with completed results...")
+            print("=" * 70)
+
+            # This calls the updated save_state that handles STACK_RESULTS
+            success = save_state(SESSION_PATHS)
+
+            if success:
+                print(f"\n✅ Session saved! All {len(STACK_RESULTS)} results are preserved.")
+                print("   Next time you load this session, all plots will appear automatically.")
+                print("=" * 70)
+
+        # Final completion summary
         print(f"\n🏁 Complete! {len(STACK_RESULTS)}/{len(EXPERIMENT_STACK)} successful")
-        print(f"   Results: {results_file.name}")
-        print(f"   Cached: {len(TRAINED_CACHE)} experiments for future use")
+        print(f"   Results file: {results_file.name}")
+        print(f"   Cached: {len(TRAINED_CACHE)} experiments available for future skip-training")
 
 
 def on_run_single(b, wd):
@@ -1089,9 +1193,20 @@ def on_run_single(b, wd):
 
 # === RESULTS DISPLAY ===
 def update_results_display(wd, results):
-    if not results:
-        wd['results_summary'].value = "<div style='padding: 20px;'><i>No results yet. Run experiments or load saved results.</i></div>"
+    if not results or len(results) == 0:
+        wd['results_summary'].value = """
+        <div style='padding: 15px; background-color: #fff3cd; border-left: 5px solid #ffc107;'>
+            <h3>ℹ️ No Results in this Session</h3>
+            <p>The session was loaded, but no experiments have been run yet.</p>
+            <ol>
+                <li>Click an item in the <b>Stack List</b></li>
+                <li>Review the parameters in the tabs</li>
+                <li>Click <b>"Run Single"</b> or <b>"Run Stack"</b> to generate data</li>
+            </ol>
+        </div>
+        """
         return
+    # ... rest of the function stays the same ...
 
     try:
         # Clear output areas first
@@ -1275,6 +1390,7 @@ def setup_all_callbacks(wd):
     wd['num_layers'].observe(lambda c: on_num_layers_change(c, wd), names='value')
     wd['compare_multiple_models'].observe(lambda c: on_compare_models_change(c, wd), names='value')
     wd['multi_seed_runs'].observe(lambda c: on_multi_seed_change(c, wd), names='value')
+    wd['stack_display'].observe(lambda change: on_stack_item_selected(change, wd), names='value')
     update_param_count_preview(wd)
     on_probe_category_change({'new': 'Physics-Based'}, wd)
 
@@ -1297,6 +1413,8 @@ def setup_experiment_handlers(wd):
     wd['button_clear_stack'].on_click(lambda b: on_clear_stack(b, wd))
     wd['button_save_stack'].on_click(lambda b: on_save_stack(b, wd))
     wd['button_load_stack'].on_click(lambda b: on_load_stack_browser(b, wd))
+    if 'button_update_stack' in wd:  # Ensure this key matches your UI button name
+        wd['button_update_stack'].on_click(lambda b: on_update_stack_item(b, wd))
 
     # Execution
     wd['button_run_experiment'].on_click(lambda b: on_run_single(b, wd))
@@ -1306,6 +1424,8 @@ def setup_experiment_handlers(wd):
     wd['button_save_config'].on_click(lambda b: on_save_config_click(b, wd))
     wd['button_load_config'].on_click(lambda b: on_load_config_browser(b, wd))
     wd['button_reset_defaults'].on_click(lambda b: reset_to_defaults(wd))
+    if 'button_save_session' in wd:
+        wd['button_save_session'].on_click(lambda b: on_save_session_complete(b, wd))
 
     # Plots
     wd['button_plot_only'].on_click(lambda b: on_plot_only_mode(b, wd))
