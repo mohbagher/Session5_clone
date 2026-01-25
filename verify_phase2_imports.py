@@ -77,7 +77,7 @@ def verify_imports():
     # Test 6: Experiment runner
     print("\n[6/6] Testing experiment runner...")
     try:
-        from dashboard.experiment_runner import (
+        from src.ris_platform.experiments.runner import (
             run_single_experiment,
             generate_channels_python,
             generate_channels_matlab

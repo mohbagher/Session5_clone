@@ -5,8 +5,6 @@ Plot selection, output format, styling options.
 """
 
 import ipywidgets as widgets
-from dashboard.components.buttons import create_results_buttons
-
 
 def create_visualization_tab():
     """Create Visualization Control tab."""
@@ -68,22 +66,21 @@ def create_visualization_tab():
         layout=widgets.Layout(width='500px')
     )
 
-    # Results management buttons
-    results_buttons = create_results_buttons()
-
-    # Layout
+    # Layout - CLEANED: No buttons here anymore
     tab_layout = widgets.VBox([
-        widgets.HTML("<h3>Visualization Control</h3>"),
-        widgets.HTML("<h4>Plot Mode</h4>"),
-        results_buttons,
-        widgets.HTML("<hr style='margin: 15px 0;'>"),
+        widgets.HTML("<h3>Visualization Configuration</h3>"),
+        widgets.HTML("<p>Configure which plots to generate when you click 'Plot Only' or 'Run Stack' below.</p>"),
+
         widgets.HTML("<h4>Plot Selection</h4>"),
         widget_selected_plots,
+
         widgets.HTML("<h4 style='margin-top: 20px;'>Output Settings</h4>"),
         widget_figure_format,
         widget_dpi,
+
         widgets.HTML("<h4 style='margin-top: 20px;'>Styling</h4>"),
         widget_color_palette,
+
         widgets.HTML("<h4 style='margin-top: 20px;'>Save Options</h4>"),
         widget_save_plots,
         widget_output_dir
@@ -98,6 +95,5 @@ def create_visualization_tab():
         'save_plots': widget_save_plots,
         'output_dir': widget_output_dir
     }
-    tab_layout._widgets.update(results_buttons._widgets)
 
     return tab_layout

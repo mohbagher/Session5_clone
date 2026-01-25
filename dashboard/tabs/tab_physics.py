@@ -1,500 +1,215 @@
 """
-Tab 2: Physics & Realism Configuration
-=======================================
-Channel sources, realism profiles, advanced impairment settings.
-
-Phase 2 Extensions:
-- MATLAB backend selection
-- Toolbox scenario selector
-- Advanced MATLAB parameters (CDL-RIS)
+Tab 2: Physics & Realism (Real MATLAB Logic)
+============================================
+Features:
+- Real MATLAB Engine Detection
+- Dynamic Status Indicators (Green/Red)
+- Carrier Frequency always visible
+- Rich Profile Descriptions
 """
 
 import ipywidgets as widgets
+import time
+import sys
 
+def create_group_box(title, content_list, color="#00897B"):
+    header = widgets.HTML(f"<div style='background-color: {color}; color: white; padding: 4px 10px; font-size: 12px; font-weight: bold; border-radius: 4px 4px 0 0;'>{title}</div>")
+    body = widgets.VBox(content_list, layout=widgets.Layout(padding='10px', border=f'1px solid {color}', border_radius='0 0 4px 4px', margin_bottom='10px', width='100%'))
+    return widgets.VBox([header, body])
+
+def check_matlab_installed():
+    """Checks if the Python-MATLAB bridge is actually installed."""
+    try:
+        import matlab.engine
+        return True, "MATLAB Engine Detected"
+    except ImportError:
+        return False, "❌ ERROR: 'matlab.engine' not installed. Run: pip install matlabengine"
+    except Exception as e:
+        return False, f"❌ Error: {str(e)}"
 
 def create_physics_tab():
-    """Create Physics & Realism tab with Phase 2 MATLAB integration."""
-
     # ========================================================================
-    # PHASE 1: Channel Source (kept for backward compatibility)
+    # 1. SIMULATION ENGINE
     # ========================================================================
 
-    widget_channel_source = widgets.Dropdown(
-        options=[
-            ('Python Synthetic (Built-in)', 'python_synthetic'),
-            ('MATLAB Engine (Phase 2)', 'matlab_engine'),
-            ('MATLAB Verified Data (Phase 2)', 'matlab_verified')
-        ],
-        value='python_synthetic',
-        description='Channel Source:',
-        style={'description_width': '180px'},
-        layout=widgets.Layout(width='600px'),
-        tooltip='Select physics simulation backend'
-    )
-
-    # Source info display
-    widget_source_info = widgets.HTML(
-        value=(
-            "<div style='margin-left: 190px; padding: 10px; background: #e3f2fd; border-left: 3px solid #2196f3;'>"
-            "<b>Python Synthetic</b><br>"
-            "Built-in numpy-based Rayleigh fading<br>"
-            "[OK] Analytically verified<br>"
-            "[OK] Fast and reliable"
-            "</div>"
-        ),
-        layout=widgets.Layout(width='600px')
-    )
-
-    def update_source_info(change):
-        source = change['new']
-
-        if source == 'python_synthetic':
-            info = (
-                "<div style='margin-left: 190px; padding: 10px; background: #e3f2fd; border-left: 3px solid #2196f3;'>"
-                "<b>Python Synthetic</b><br>"
-                "Built-in numpy-based Rayleigh fading<br>"
-                "[OK] Analytically verified<br>"
-                "[OK] Fast and reliable"
-                "</div>"
-            )
-        elif source == 'matlab_engine':
-            info = (
-                "<div style='margin-left: 190px; padding: 10px; background: #c8e6c9; border-left: 3px solid #4caf50;'>"
-                "<b>MATLAB Engine (Phase 2 Active)</b><br>"
-                "Live MATLAB channel generation<br>"
-                "[OK] MathWorks verified toolboxes<br>"
-                "[OK] Configure below in Backend Selection"
-                "</div>"
-            )
-        else:
-            info = (
-                "<div style='margin-left: 190px; padding: 10px; background: #fff3e0; border-left: 3px solid #ff9800;'>"
-                "<b>MATLAB Verified Data (Not Implemented)</b><br>"
-                "Load pre-verified .mat files<br>"
-                "[WARN] Requires pre-generated data<br>"
-                "[WARN] Coming in Phase 2.2"
-                "</div>"
-            )
-
-        widget_source_info.value = info
-
-    widget_channel_source.observe(update_source_info, 'value')
-
-    # ========================================================================
-    # PHASE 2: BACKEND SELECTION (NEW)
-    # ========================================================================
-
-    widget_physics_backend = widgets.Dropdown(
-        options=[
-            ('Python (Default)', 'python'),
-            ('MATLAB Engine (Verified Toolboxes)', 'matlab')
-        ],
+    widget_backend = widgets.ToggleButtons(
+        options=['python', 'matlab'],
         value='python',
-        description='Physics Backend:',
-        style={'description_width': '180px'},
-        layout=widgets.Layout(width='600px'),
-        tooltip='Select computational backend for channel generation'
+        description='Engine:',
+        button_style='',
+        style={'button_width': '100px'},
+        layout=widgets.Layout(width='100%')
     )
 
-    # MATLAB scenario selector
-    widget_matlab_scenario = widgets.Dropdown(
-        options=[
-            ('Rayleigh Fading (Communications Toolbox)', 'rayleigh_basic'),
-            ('CDL-RIS Channel (5G Toolbox)', 'cdl_ris'),
-            ('Rician LOS (Communications Toolbox)', 'rician_los'),
-            ('TDL Urban (5G Toolbox)', 'tdl_urban')
-        ],
-        value='rayleigh_basic',
-        description='MATLAB Scenario:',
-        style={'description_width': '180px'},
-        layout=widgets.Layout(width='600px'),
-        disabled=True,
-        tooltip='Select verified MathWorks scenario'
+    # --- MATLAB CONFIGURATION ---
+    widget_matlab_mode = widgets.ToggleButtons(
+        options=['Live Engine', 'Data File'],
+        value='Live Engine',
+        description='Source:',
+        button_style='',
+        style={'button_width': '100px'},
     )
 
-    # MATLAB status indicator
+    # DYNAMIC STATUS WIDGET
     widget_matlab_status = widgets.HTML(
-        value="<div style='padding: 10px; background: #e0e0e0;'>"
-              "<b>MATLAB Status:</b> Not selected (using Python)"
-              "</div>",
-        layout=widgets.Layout(width='600px', margin='10px 0')
+        value="<div style='padding: 8px; background: #eee; border-left: 4px solid #999; color: #666;'><i>Select MATLAB backend to connect...</i></div>",
+        layout=widgets.Layout(width='98%', margin='5px 0')
     )
 
-    # MATLAB toolbox info box
-    widget_matlab_toolbox_info = widgets.HTML(
-        value="",
-        layout=widgets.Layout(width='600px', min_height='80px', margin='10px 0')
+    widget_scenario = widgets.Dropdown(
+        options=[('Rayleigh Fading (Comm Toolbox)', 'rayleigh_basic'), ('CDL-RIS Channel (5G Toolbox)', 'cdl_ris')],
+        value='rayleigh_basic',
+        description='Scenario:',
+        layout=widgets.Layout(width='98%')
     )
 
-    # ========================================================================
-    # PHASE 2: Advanced MATLAB Parameters (CDL-RIS specific)
-    # ========================================================================
+    # GLOBAL MATLAB PARAMS (Moved out of CDL box so they are always visible)
+    widget_carrier_freq = widgets.FloatText(value=28e9, description='Freq (Hz):', layout=widgets.Layout(width='98%'))
 
-    widget_carrier_frequency = widgets.FloatText(
-        value=28e9,
-        description='Carrier Freq (Hz):',
-        style={'description_width': '180px'},
-        layout=widgets.Layout(width='600px'),
-        disabled=True,
-        tooltip='Carrier frequency for CDL channel'
-    )
+    # CDL Specifics
+    widget_delay_profile = widgets.Dropdown(options=['CDL-A', 'CDL-B', 'CDL-C'], value='CDL-C', description='Profile:', layout=widgets.Layout(width='98%'))
+    widget_doppler_matlab = widgets.FloatText(value=5.0, description='Doppler (Hz):', layout=widgets.Layout(width='98%'))
 
-    widget_delay_profile = widgets.Dropdown(
-        options=['CDL-A', 'CDL-B', 'CDL-C', 'CDL-D', 'CDL-E'],
-        value='CDL-C',
-        description='CDL Profile:',
-        style={'description_width': '180px'},
-        layout=widgets.Layout(width='600px'),
-        disabled=True,
-        tooltip='3GPP CDL delay profile'
-    )
+    # Scenario Info Box
+    widget_scenario_info = widgets.HTML(value="", layout=widgets.Layout(width='98%', margin='5px 0'))
 
-    widget_doppler_shift = widgets.FloatText(
-        value=5,
-        description='Doppler (Hz):',
-        style={'description_width': '180px'},
-        layout=widgets.Layout(width='600px'),
-        disabled=True,
-        tooltip='Maximum Doppler shift'
-    )
-
-    # Advanced parameters container
-    matlab_advanced_params = widgets.VBox([
-        widgets.HTML("<b>CDL-RIS Parameters:</b> (only for cdl_ris scenario)"),
-        widget_carrier_frequency,
+    # Containers
+    container_cdl_params = widgets.VBox([
+        widgets.HTML("<b>CDL-RIS Specifics:</b>"),
         widget_delay_profile,
-        widget_doppler_shift
-    ], layout=widgets.Layout(
-        border='1px solid #ddd',
-        padding='10px',
-        margin='10px 0',
-        display='none'  # Hidden by default
-    ))
+        widget_doppler_matlab
+    ], layout=widgets.Layout(border='1px solid #ddd', padding='10px', margin='10px 0'))
 
-    # ========================================================================
-    # PHASE 2: Dynamic UI Updates
-    # ========================================================================
+    widget_file_path = widgets.Text(placeholder='C:/Data/channel.mat', description='Path:', layout=widgets.Layout(width='98%'))
 
-    def update_backend_ui(change):
-        """Update UI when backend selection changes."""
-        backend = change['new']
-
-        if backend == 'matlab':
-            # Enable MATLAB controls
-            widget_matlab_scenario.disabled = False
-
-            # Check MATLAB status
-            try:
-                from physics.matlab_backend.session_manager import get_session_manager
-                session_mgr = get_session_manager()
-
-                if session_mgr.start_session():
-                    # Success
-                    widget_matlab_status.value = (
-                        "<div style='padding: 10px; background: #c8e6c9;'>"
-                        "<b>✓ MATLAB Status:</b> Connected and ready"
-                        "</div>"
-                    )
-
-                    # Get toolbox info
-                    from physics.matlab_backend.toolbox_registry import ToolboxManager
-                    toolbox_mgr = ToolboxManager(session_mgr.get_engine())
-                    available = toolbox_mgr.check_available_toolboxes()
-
-                    toolbox_html = "<div style='padding: 10px; background: #e3f2fd;'>"
-                    toolbox_html += "<b>Available Toolboxes:</b><br>"
-                    for name, avail in available.items():
-                        status = "✓" if avail else "✗"
-                        color = "green" if avail else "red"
-                        toolbox_html += f"<span style='color:{color};'>{status} {name.replace('_', ' ').title()}</span><br>"
-                    toolbox_html += "</div>"
-
-                    widget_matlab_toolbox_info.value = toolbox_html
-                else:
-                    # Failed
-                    widget_matlab_status.value = (
-                        "<div style='padding: 10px; background: #ffcdd2;'>"
-                        "<b>✗ MATLAB Status:</b> Connection failed"
-                        "</div>"
-                    )
-                    widget_matlab_toolbox_info.value = (
-                        "<div style='padding: 10px; background: #fff3e0;'>"
-                        "<b>⚠ Error:</b> Could not start MATLAB Engine. "
-                        "Ensure MATLAB is installed and matlab.engine is configured."
-                        "</div>"
-                    )
-            except Exception as e:
-                widget_matlab_status.value = (
-                    "<div style='padding: 10px; background: #ffcdd2;'>"
-                    f"<b>✗ MATLAB Status:</b> Error - {str(e)}"
-                    "</div>"
-                )
-                widget_matlab_toolbox_info.value = (
-                    "<div style='padding: 10px; background: #fff3e0;'>"
-                    "<b>⚠ Note:</b> MATLAB Engine not available. Install with:<br>"
-                    "<code>cd /path/to/MATLAB/extern/engines/python && python setup.py install</code>"
-                    "</div>"
-                )
-        else:
-            # Python backend - disable MATLAB controls
-            widget_matlab_scenario.disabled = True
-            widget_matlab_status.value = (
-                "<div style='padding: 10px; background: #e0e0e0;'>"
-                "<b>MATLAB Status:</b> Not selected (using Python)"
-                "</div>"
-            )
-            widget_matlab_toolbox_info.value = ""
-            matlab_advanced_params.layout.display = 'none'
-
-    def update_scenario_ui(change):
-        """Update UI when MATLAB scenario changes."""
-        scenario = change['new']
-
-        # Show/hide advanced params based on scenario
-        if scenario == 'cdl_ris':
-            matlab_advanced_params.layout.display = 'block'
-            widget_carrier_frequency.disabled = False
-            widget_delay_profile.disabled = False
-            widget_doppler_shift.disabled = False
-        else:
-            matlab_advanced_params.layout.display = 'none'
-            widget_carrier_frequency.disabled = True
-            widget_delay_profile.disabled = True
-            widget_doppler_shift.disabled = True
-
-        # Update info box with scenario details
-        try:
-            from physics.matlab_backend.toolbox_registry import SCENARIO_TEMPLATES
-            template = SCENARIO_TEMPLATES.get(scenario)
-
-            if template:
-                info_html = f"<div style='padding: 10px; background: #f3e5f5;'>"
-                info_html += f"<b>Scenario:</b> {template.name}<br>"
-                info_html += f"<b>Toolbox:</b> {template.toolbox.replace('_', ' ').title()}<br>"
-                info_html += f"<b>Description:</b> {template.description}<br>"
-                info_html += f"<b>Reference:</b> <a href='{template.reference}' target='_blank'>MathWorks Docs</a>"
-                info_html += "</div>"
-
-                widget_matlab_toolbox_info.value = info_html
-        except:
-            pass
-
-    # Attach observers
-    widget_physics_backend.observe(update_backend_ui, 'value')
-    widget_matlab_scenario.observe(update_scenario_ui, 'value')
-
-    # ========================================================================
-    # PHASE 1: Realism Profile (unchanged)
-    # ========================================================================
-
-    widget_realism_profile = widgets.Dropdown(
-        options=[
-            ('Ideal (No Impairments)', 'ideal'),
-            ('Mild Impairments (Lab)', 'mild_impairments'),
-            ('Moderate Impairments (Indoor)', 'moderate_impairments'),
-            ('Severe Impairments (Outdoor)', 'severe_impairments'),
-            ('Worst Case (Stress Test)', 'worst_case')
-        ],
-        value='ideal',
-        description='Realism Profile:',
-        style={'description_width': '180px'},
-        layout=widgets.Layout(width='600px'),
-        tooltip='Select pre-configured impairment bundle'
-    )
-
-    # Profile descriptions
-    profile_descriptions = {
-        'ideal': (
-            "<b>Ideal Conditions</b><br>"
-            "• Perfect CSI<br>"
-            "• Infinite precision hardware<br>"
-            "• No environmental effects<br>"
-            "<i>Use for: Theoretical upper bounds</i>"
-        ),
-        'mild_impairments': (
-            "<b>Mild Impairments</b><br>"
-            "• -30 dB CSI error (0.1%)<br>"
-            "• 5 Hz Doppler, 10ms delay<br>"
-            "• 6-bit phase shifters<br>"
-            "<i>Use for: High-quality lab equipment</i>"
-        ),
-        'moderate_impairments': (
-            "<b>Moderate Impairments</b><br>"
-            "• -20 dB CSI error (1%)<br>"
-            "• 10 Hz Doppler, 20ms delay<br>"
-            "• 4-bit phase shifters<br>"
-            "<i>Use for: Typical indoor deployment</i>"
-        ),
-        'severe_impairments': (
-            "<b>Severe Impairments</b><br>"
-            "• -15 dB CSI error (3%)<br>"
-            "• 50 Hz Doppler, 50ms delay<br>"
-            "• 3-bit phase shifters<br>"
-            "<i>Use for: Outdoor/vehicular scenarios</i>"
-        ),
-        'worst_case': (
-            "<b>Worst Case</b><br>"
-            "• -10 dB CSI error (10%)<br>"
-            "• 100 Hz Doppler, 100ms delay<br>"
-            "• 2-bit phase shifters<br>"
-            "<i>Use for: Robustness testing</i>"
-        )
-    }
-
-    widget_profile_info = widgets.HTML(
-        value=(
-            "<div style='margin-left: 190px; padding: 10px; background: #e8f5e9; border-left: 3px solid #4caf50;'>"
-            + profile_descriptions['ideal'] +
-            "</div>"
-        ),
-        layout=widgets.Layout(width='600px')
-    )
-
-    def update_profile_info(change):
-        profile = change['new']
-
-        color_map = {
-            'ideal': ('#e8f5e9', '#4caf50'),
-            'mild_impairments': ('#fff9c4', '#fbc02d'),
-            'moderate_impairments': ('#ffe0b2', '#f57c00'),
-            'severe_impairments': ('#ffccbc', '#d84315'),
-            'worst_case': ('#f3e5f5', '#7b1fa2')
-        }
-
-        bg_color, border_color = color_map.get(profile, ('#fff', '#999'))
-
-        widget_profile_info.value = (
-            f"<div style='margin-left: 190px; padding: 10px; background: {bg_color}; border-left: 3px solid {border_color};'>"
-            + profile_descriptions.get(profile, "Unknown profile") +
-            "</div>"
-        )
-
-    widget_realism_profile.observe(update_profile_info, 'value')
-
-    # ========================================================================
-    # PHASE 1: Advanced Impairments (unchanged)
-    # ========================================================================
-
-    widget_use_custom_impairments = widgets.Checkbox(
-        value=False,
-        description='Advanced: Use Custom Impairments',
-        style={'description_width': 'initial'},
-        layout=widgets.Layout(width='600px', margin='20px 0 10px 0')
-    )
-
-    widget_csi_error_db = widgets.FloatSlider(
-        value=-20, min=-40, max=-5, step=1,
-        description='CSI Error (dB):',
-        style={'description_width': '180px'},
-        layout=widgets.Layout(width='500px'),
-        disabled=True
-    )
-
-    widget_doppler_hz = widgets.FloatSlider(
-        value=10, min=0, max=200, step=5,
-        description='Doppler (Hz):',
-        style={'description_width': '180px'},
-        layout=widgets.Layout(width='500px'),
-        disabled=True
-    )
-
-    widget_phase_bits_hw = widgets.IntSlider(
-        value=4, min=1, max=8, step=1,
-        description='Phase Shifter Bits:',
-        style={'description_width': '180px'},
-        layout=widgets.Layout(width='500px'),
-        disabled=True
-    )
-
-    widget_adc_bits = widgets.IntSlider(
-        value=10, min=6, max=16, step=1,
-        description='ADC Bits:',
-        style={'description_width': '180px'},
-        layout=widgets.Layout(width='500px'),
-        disabled=True
-    )
-
-    advanced_warning = widgets.HTML(
-        value=(
-            "<div style='margin: 10px 0 10px 190px; padding: 10px; background: #ffebee; border-left: 3px solid #f44336;'>"
-            "[WARNING] Modifying these settings will override the selected realism profile. "
-            "Custom configurations are logged separately."
-            "</div>"
-        ),
-        layout=widgets.Layout(width='600px')
-    )
-
-    advanced_container = widgets.VBox([
-        advanced_warning,
-        widget_csi_error_db,
-        widget_doppler_hz,
-        widget_phase_bits_hw,
-        widget_adc_bits
-    ])
-    advanced_container.layout.display = 'none'
-
-    def toggle_advanced(change):
-        is_custom = change['new']
-        advanced_container.layout.display = 'block' if is_custom else 'none'
-        widget_csi_error_db.disabled = not is_custom
-        widget_doppler_hz.disabled = not is_custom
-        widget_phase_bits_hw.disabled = not is_custom
-        widget_adc_bits.disabled = not is_custom
-
-    widget_use_custom_impairments.observe(toggle_advanced, 'value')
-
-    # ========================================================================
-    # FINAL LAYOUT
-    # ========================================================================
-
-    tab_layout = widgets.VBox([
-        widgets.HTML("<h3>Physics & Realism Configuration</h3>"),
-
-        widgets.HTML("<h4>Channel Source (Phase 1)</h4>"),
-        widget_channel_source,
-        widget_source_info,
-
-        widgets.HTML("<hr style='margin: 20px 0;'>"),
-        widgets.HTML("<h4>Backend Selection (Phase 2)</h4>"),
-        widget_physics_backend,
+    container_matlab_live = widgets.VBox([
         widget_matlab_status,
-        widget_matlab_scenario,
-        widget_matlab_toolbox_info,
-        matlab_advanced_params,
+        widget_scenario,
+        widget_carrier_freq, # Moved here
+        widget_scenario_info,
+        container_cdl_params
+    ])
 
-        widgets.HTML("<hr style='margin: 20px 0;'>"),
-        widgets.HTML("<h4>Realism Profile</h4>"),
-        widget_realism_profile,
-        widget_profile_info,
+    container_matlab_file = widgets.VBox([widgets.HTML("<i>Load .mat file:</i>"), widget_file_path])
 
-        widgets.HTML("<hr style='margin: 20px 0;'>"),
-        widget_use_custom_impairments,
-        advanced_container
-    ], layout=widgets.Layout(padding='20px'))
+    container_matlab = widgets.VBox([
+        widgets.HTML("<hr style='margin: 5px 0'>"),
+        widget_matlab_mode,
+        container_matlab_live,
+        container_matlab_file
+    ], layout=widgets.Layout(display='none', padding='5px 0 0 10px'))
+
+    box_engine = create_group_box("⚙️ SIMULATION ENGINE", [widget_backend, container_matlab])
 
     # ========================================================================
-    # Store widget references
+    # 2. REALISM & IMPAIRMENTS
     # ========================================================================
 
-    tab_layout._widgets = {
-        # Phase 1 widgets
-        'channel_source': widget_channel_source,
-        'source_info': widget_source_info,
-        'realism_profile': widget_realism_profile,
-        'profile_info': widget_profile_info,
-        'use_custom_impairments': widget_use_custom_impairments,
-        'csi_error_db': widget_csi_error_db,
-        'doppler_hz': widget_doppler_hz,
-        'phase_bits_hw': widget_phase_bits_hw,
-        'adc_bits': widget_adc_bits,
-        # Phase 2 widgets (NEW)
-        'physics_backend': widget_physics_backend,
-        'matlab_scenario': widget_matlab_scenario,
-        'matlab_status': widget_matlab_status,
-        'matlab_toolbox_info': widget_matlab_toolbox_info,
-        'carrier_frequency': widget_carrier_frequency,
-        'delay_profile': widget_delay_profile,
-        'doppler_shift_matlab': widget_doppler_shift,
+    widget_realism = widgets.Dropdown(
+        options=[('Ideal (No Impairments)', 'ideal'), ('Mild (Lab Conditions)', 'mild'), ('Moderate (Typical Indoor)', 'moderate'), ('Severe (Outdoor/Mobile)', 'severe'), ('Worst Case (Stress Test)', 'worst')],
+        value='ideal', description='Profile:', style={'description_width': '80px'}, layout=widgets.Layout(width='98%')
+    )
+
+    widget_profile_info = widgets.HTML(value="")
+    widget_use_custom = widgets.Checkbox(value=False, description='Unlock & Override Settings')
+
+    widget_coupling = widgets.FloatSlider(value=0.0, min=0.0, max=1.0, step=0.05, description='Coupling:', disabled=True, layout=widgets.Layout(width='98%'))
+    widget_doppler = widgets.FloatSlider(value=0.0, min=0.0, max=200.0, description='Doppler (Hz):', disabled=True, layout=widgets.Layout(width='98%'))
+    widget_csi_error = widgets.FloatSlider(value=-100.0, min=-50.0, max=0.0, description='CSI Err (dB):', disabled=True, layout=widgets.Layout(width='98%'))
+    widget_phase_bits = widgets.IntSlider(value=8, min=1, max=8, description='HW Bits:', disabled=True, layout=widgets.Layout(width='98%'))
+    widget_adc_bits = widgets.IntSlider(value=12, min=1, max=16, description='ADC Bits:', disabled=True, layout=widgets.Layout(width='98%'))
+
+    grid_impairments = widgets.GridBox([widget_coupling, widget_doppler, widget_csi_error, widget_phase_bits, widget_adc_bits], layout=widgets.Layout(grid_template_columns='repeat(2, 50%)', grid_gap='5px'))
+
+    box_impairments = create_group_box("⚠️ HARDWARE IMPAIRMENTS", [widget_realism, widget_profile_info, widgets.HTML("<hr style='margin: 5px 0'>"), widget_use_custom, grid_impairments])
+
+    # ========================================================================
+    # LOGIC
+    # ========================================================================
+
+    def on_backend_change(change):
+        if change['new'] == 'matlab':
+            container_matlab.layout.display = 'block'
+            # RUN REAL CHECK
+            widget_matlab_status.value = "<div style='padding: 8px; background: #fff3e0; border-left: 4px solid #ff9800; color: #ef6c00;'>⏳ Checking MATLAB Engine...</div>"
+
+            # Simple check
+            is_installed, msg = check_matlab_installed()
+            if is_installed:
+                widget_matlab_status.value = f"<div style='padding: 8px; background: #e8f5e9; border-left: 4px solid #4caf50; color: #2e7d32;'><b>✓ {msg}</b><br><span style='font-size:10px'>Ready to query toolboxes on run.</span></div>"
+            else:
+                widget_matlab_status.value = f"<div style='padding: 8px; background: #ffebee; border-left: 4px solid #f44336; color: #c62828;'><b>{msg}</b></div>"
+        else:
+            container_matlab.layout.display = 'none'
+
+    widget_backend.observe(on_backend_change, names='value')
+
+    def on_matlab_mode_change(change):
+        is_live = (change['new'] == 'Live Engine')
+        container_matlab_live.layout.display = 'block' if is_live else 'none'
+        container_matlab_file.layout.display = 'none' if is_live else 'block'
+    widget_matlab_mode.observe(on_matlab_mode_change, names='value')
+
+    def on_scenario_change(change):
+        scen = change['new']
+        if scen == 'cdl_ris':
+            container_cdl_params.layout.display = 'block'
+            info_html = "<div style='padding: 10px; background: #f3e5f5; border-left: 4px solid #ab47bc;'><b>Scenario:</b> CDL-RIS<br><b>Required:</b> 5G Toolbox<br><b>Desc:</b> 3GPP Clustered Delay Line model.</div>"
+        else:
+            container_cdl_params.layout.display = 'none'
+            info_html = "<div style='padding: 10px; background: #e3f2fd; border-left: 4px solid #2196f3;'><b>Scenario:</b> Rayleigh Fading<br><b>Required:</b> Comm Toolbox<br><b>Desc:</b> Standard NLOS statistical fading.</div>"
+        widget_scenario_info.value = info_html
+
+    widget_scenario.observe(on_scenario_change, names='value')
+
+    # Profile Logic
+    PROFILES = {
+        'ideal':    {'c': 0.0, 'd': 0.0, 'e': -100, 'b': 8, 'a': 16, 'desc': '<b>Ideal:</b> Perfect CSI, no errors.', 'color': '#e8f5e9', 'border': '#4caf50'},
+        'mild':     {'c': 0.1, 'd': 5.0, 'e': -30,  'b': 6, 'a': 12, 'desc': '<b>Mild:</b> Lab equipment quality.', 'color': '#fff9c4', 'border': '#fbc02d'},
+        'moderate': {'c': 0.3, 'd': 20.0, 'e': -20, 'b': 4, 'a': 10, 'desc': '<b>Moderate:</b> Typical indoor usage.', 'color': '#ffe0b2', 'border': '#f57c00'},
+        'severe':   {'c': 0.5, 'd': 100.0,'e': -15, 'b': 2, 'a': 8,  'desc': '<b>Severe:</b> Outdoor/Vehicular.', 'color': '#ffccbc', 'border': '#d84315'},
+        'worst':    {'c': 0.8, 'd': 200.0,'e': -5,  'b': 1, 'a': 6,  'desc': '<b>Worst:</b> Stress test limits.', 'color': '#f3e5f5', 'border': '#7b1fa2'},
     }
 
+    def update_profile(change=None):
+        p = PROFILES[widget_realism.value]
+        widget_profile_info.value = f"<div style='margin: 5px 0; padding: 8px; background: {p['color']}; border-left: 4px solid {p['border']}; font-size: 11px;'>{p['desc']}</div>"
+        if not widget_use_custom.value:
+            widget_coupling.value = p['c']; widget_doppler.value = p['d']; widget_csi_error.value = p['e']; widget_phase_bits.value = p['b']; widget_adc_bits.value = p['a']
+
+    def on_override_change(change):
+        is_custom = change['new']
+        for w in [widget_coupling, widget_doppler, widget_csi_error, widget_phase_bits, widget_adc_bits]: w.disabled = not is_custom
+        if not is_custom: update_profile()
+
+    widget_realism.observe(update_profile, names='value')
+    widget_use_custom.observe(on_override_change, names='value')
+
+    # Init
+    on_backend_change({'new': widget_backend.value})
+    on_matlab_mode_change({'new': widget_matlab_mode.value})
+    on_scenario_change({'new': widget_scenario.value})
+    update_profile()
+
+    tab_layout = widgets.VBox([box_engine, box_impairments])
+
+    # Store references
+    tab_layout._widgets = {
+        'physics_backend': widget_backend,
+        'matlab_mode': widget_matlab_mode,
+        'matlab_scenario': widget_scenario,
+        'carrier_frequency': widget_carrier_freq,
+        'delay_profile': widget_delay_profile,
+        'matlab_file_path': widget_file_path,
+        'realism_profile': widget_realism,
+        'use_custom_impairments': widget_use_custom,
+        'varactor_coupling_strength': widget_coupling,
+        'doppler_hz': widget_doppler,
+        'csi_error_db': widget_csi_error,
+        'phase_bits_hw': widget_phase_bits,
+        'adc_bits': widget_adc_bits,
+        'doppler_shift_matlab': widget_doppler_matlab,
+        'coupling_strength': widget_coupling,
+        'phase_bits': widget_phase_bits
+    }
     return tab_layout

@@ -1,18 +1,24 @@
 """
-Main Dashboard Orchestrator
-============================
-Brings together all tabs, components, and creates the unified interface.
+Main Dashboard Orchestrator - Professional Visual Edition
+========================================================
+Refined layout with compact panels, gray-style buttons, and full logic integration.
 """
 
 import ipywidgets as widgets
+from IPython.display import display, HTML
+
+# Import Tabs
 from dashboard.tabs import (
     create_system_tab,
     create_physics_tab,
     create_model_tab,
     create_training_tab,
     create_evaluation_tab,
-    create_visualization_tab
+    create_visualization_tab,
+    tab_ablation
 )
+
+# Import Components
 from dashboard.components import (
     create_stack_manager,
     create_action_buttons,
@@ -22,21 +28,28 @@ from dashboard.components import (
     create_results_display
 )
 
+# Import Callbacks
+from dashboard.callbacks import setup_all_callbacks, setup_experiment_handlers
+
+def create_panel(title, content, color="#2C3E50"):
+    """Wraps a widget in a stylish, distinctive box."""
+    header = widgets.HTML(
+        value=f"<div style='background-color: {color}; color: white; padding: 8px 15px; border-radius: 4px 4px 0 0; font-weight: bold; font-family: sans-serif;'>{title}</div>"
+    )
+
+    body = widgets.VBox([content], layout=widgets.Layout(
+        padding='15px',
+        border=f'1px solid {color}',
+        border_top='none',
+        border_radius='0 0 4px 4px',
+        width='100%',
+        background_color='#ffffff'
+    ))
+
+    return widgets.VBox([header, body], layout=widgets.Layout(margin='10px 0', width='100%'))
 
 def create_unified_dashboard():
-    """
-    Create the complete unified dashboard.
-
-    Returns:
-        tuple: (dashboard_widget, widget_dict)
-            - dashboard_widget: The complete UI
-            - widget_dict: Dictionary of all widgets for callbacks
-    """
-
-    # ========================================================================
-    # Create Tabs
-    # ========================================================================
-
+    # --- Create Tabs ---
     tab_system = create_system_tab()
     tab_physics = create_physics_tab()
     tab_model = create_model_tab()
@@ -44,207 +57,123 @@ def create_unified_dashboard():
     tab_evaluation = create_evaluation_tab()
     tab_visualization = create_visualization_tab()
 
-    # Create tab container
+    try:
+        tab_ablation_widget = tab_ablation.render({})
+    except:
+        tab_ablation_widget = widgets.HTML("Ablation tab unavailable")
+
     tabs = widgets.Tab(children=[
-        tab_system,
-        tab_physics,
-        tab_model,
-        tab_training,
-        tab_evaluation,
-        tab_visualization
+        tab_system, tab_physics, tab_model, tab_training,
+        tab_evaluation, tab_visualization, tab_ablation_widget
     ])
 
-    tabs.set_title(0, 'System')
-    tabs.set_title(1, 'Physics & Realism')
-    tabs.set_title(2, 'Model')
-    tabs.set_title(3, 'Training')
-    tabs.set_title(4, 'Evaluation')
-    tabs.set_title(5, 'Visualization')
+    titles = ['System', 'Physics', 'Model', 'Training', 'Metrics', 'Visualization', 'Ablation']
+    for i, title in enumerate(titles): tabs.set_title(i, title)
 
-    # ========================================================================
-    # Create Components (Below Tabs)
-    # ========================================================================
-
+    # --- Create Components ---
     stack_manager = create_stack_manager()
     action_buttons = create_action_buttons()
     results_buttons = create_results_buttons()
     export_buttons = create_export_buttons()
     status_display = create_status_display()
 
-    # ========================================================================
-    # Assemble Dashboard
-    # ========================================================================
-
-    dashboard = widgets.VBox([
-        tabs,                    # Parameter tabs at top
-        stack_manager,           # Stack manager below tabs
-        action_buttons,          # Main action buttons
-        results_buttons,         # Results management buttons
-        export_buttons,          # Export buttons
-        status_display           # Progress and logs
-    ])
-
-    # ========================================================================
-    # Collect All Widgets into Dictionary
-    # ========================================================================
-
+    # --- Collect Widgets ---
     widget_dict = {}
+    for t in [tab_system, tab_physics, tab_model, tab_training, tab_evaluation, tab_visualization]:
+        if hasattr(t, '_widgets'): widget_dict.update(t._widgets)
+    for c in [stack_manager, action_buttons, results_buttons, export_buttons, status_display]:
+        if hasattr(c, '_widgets'): widget_dict.update(c._widgets)
 
-    # Add tab widgets
-    widget_dict.update(tab_system._widgets)
-    widget_dict.update(tab_physics._widgets)
-    widget_dict.update(tab_model._widgets)
-    widget_dict.update(tab_training._widgets)
-    widget_dict.update(tab_evaluation._widgets)
-    widget_dict.update(tab_visualization._widgets)
+    # --- WIRE UP CALLBACKS ---
+    try:
+        setup_all_callbacks(widget_dict)
+        setup_experiment_handlers(widget_dict)
+    except Exception as e:
+        print(f"Warning: Could not setup callbacks: {e}")
 
-    # Add component widgets
-    widget_dict.update(stack_manager._widgets)
-    widget_dict.update(action_buttons._widgets)
-    widget_dict.update(results_buttons._widgets)
-    widget_dict.update(export_buttons._widgets)
-    widget_dict.update(status_display._widgets)
+    # --- Assemble Layout ---
+    config_panel = create_panel("1. CONFIGURATION", tabs, color="#1565C0")
+    stack_panel = create_panel("2. EXPERIMENT STACK", stack_manager, color="#6A1B9A")
 
-    return dashboard, widget_dict
+    cmd_content = widgets.VBox([
+        widgets.HTML("<b>Actions:</b>"),
+        action_buttons,
+        widgets.HTML("<hr style='margin: 8px 0'><b>Results:</b>"),
+        widgets.HBox([results_buttons, export_buttons]),
+        widgets.HTML("<hr style='margin: 8px 0'>"),
+        status_display
+    ])
+    cmd_panel = create_panel("3. CONTROL PANEL", cmd_content, color="#2E7D32")
 
+    dashboard_ui = widgets.VBox([config_panel, stack_panel, cmd_panel])
+
+    return dashboard_ui, widget_dict
 
 def create_complete_interface():
-    """
-    Create complete interface with dashboard and results area.
-
-    Returns:
-        tuple: (complete_ui, widget_dict)
-    """
-
-    # Create dashboard
-    dashboard, widget_dict = create_unified_dashboard()
-
-    # Create results display
+    dashboard_ui, widget_dict = create_unified_dashboard()
     results_display = create_results_display()
 
-    # Add results widgets to dictionary
-    widget_dict.update(results_display._widgets)
+    if hasattr(results_display, '_widgets'):
+        widget_dict.update(results_display._widgets)
 
-    # Combine dashboard and results
-    complete_ui = widgets.VBox([
-        widgets.HTML("<h1 style='text-align: center; color: #1976D2;'>"
-                    "RIS Probe-Based Control - PhD Research Dashboard"
-                    "</h1>"),
-        widgets.HTML("<hr style='margin: 10px 0;'>"),
-        dashboard,
-        widgets.HTML("<hr style='margin: 20px 0;'>"),
-        results_display
-    ])
+    results_panel = create_panel("4. ANALYSIS & PLOTS", results_display, color="#C62828")
 
-    return complete_ui, widget_dict
+    # --- CSS STYLING (Gray Buttons Included) ---
+    style_html = widgets.HTML("""
+        <style>
+            .widget-tab-contents { padding: 10px; border: 1px solid #ddd; }
+            .widget-tab > .p-TabBar .p-TabBar-tab { min-width: 100px; font-weight: bold; background: #eee; }
+            .widget-tab > .p-TabBar .p-TabBar-tab.p-mod-current { background: #1565C0; color: white; }
+            
+            /* Stylish Gray Toggle Buttons */
+            .widget-toggle-buttons .widget-toggle-button {
+                background-color: #f5f5f5; 
+                color: #424242; 
+                font-weight: normal;
+                border: 1px solid #bdbdbd;
+                opacity: 1.0;
+            }
+            .widget-toggle-buttons .widget-toggle-button.p-mod-active {
+                background-color: #546E7A !important; 
+                color: white !important;
+                font-weight: bold;
+                box-shadow: inset 0 2px 4px rgba(0,0,0,0.2);
+            }
+        </style>
+    """)
 
+    title_html = widgets.HTML("<h2 style='text-align: center; color: #333;'>RIS Platform - Phase 2</h2>")
+
+    full_app = widgets.VBox(
+        [style_html, title_html, dashboard_ui, widgets.HTML("<br>"), results_panel],
+        layout=widgets.Layout(width='98%', padding='10px')
+    )
+
+    return full_app, widget_dict
+
+# ============================================================================
+# HELPER FUNCTIONS
+# ============================================================================
 
 def get_widget_values(widget_dict):
-    """
-    Extract current values from all widgets.
-
-    Args:
-        widget_dict: Dictionary of widgets
-
-    Returns:
-        dict: Configuration dictionary with all current values
-    """
-
+    """Safe extraction of values for config."""
     config = {}
-
-    # System parameters
-    config['N'] = widget_dict['N'].value
-    config['K'] = widget_dict['K'].value
-    config['M'] = widget_dict['M'].value
-    config['P_tx'] = widget_dict['P_tx'].value
-    config['sigma_h_sq'] = widget_dict['sigma_h_sq'].value
-    config['sigma_g_sq'] = widget_dict['sigma_g_sq'].value
-    config['phase_mode'] = widget_dict['phase_mode'].value
-    config['phase_bits'] = widget_dict['phase_bits'].value
-    config['probe_category'] = widget_dict['probe_category'].value
-    config['probe_type'] = widget_dict['probe_type'].value
-
-    # Physics & Realism (Phase 1)
-    config['channel_source'] = widget_dict['channel_source'].value
-    config['realism_profile'] = widget_dict['realism_profile'].value
-    config['use_custom_impairments'] = widget_dict['use_custom_impairments'].value
-
-    if config['use_custom_impairments']:
-        config['custom_impairments_config'] = {
-            'csi_error': {
-                'enabled': True,
-                'error_variance_db': widget_dict['csi_error_db'].value
-            },
-            'channel_aging': {
-                'enabled': True,
-                'doppler_hz': widget_dict['doppler_hz'].value,
-                'feedback_delay_ms': 20  # Fixed for now
-            },
-            'phase_quantization': {
-                'enabled': True,
-                'phase_bits': widget_dict['phase_bits_hw'].value
-            },
-            'quantization': {
-                'enabled': True,
-                'adc_bits': widget_dict['adc_bits'].value
-            },
-            'amplitude_control': {'enabled': False},
-            'mutual_coupling': {'enabled': False}
-        }
-    else:
-        config['custom_impairments_config'] = None
-
-    # ========================================================================
-    # PHASE 2 ADDITIONS START HERE
-    # ========================================================================
-    config['physics_backend'] = widget_dict['physics_backend'].value
-    config['matlab_scenario'] = widget_dict['matlab_scenario'].value
-    config['carrier_frequency'] = widget_dict['carrier_frequency'].value
-    config['delay_profile'] = widget_dict['delay_profile'].value
-    config['doppler_shift_matlab'] = widget_dict['doppler_shift_matlab'].value
-    # ========================================================================
-    # PHASE 2 ADDITIONS END HERE
-    # ========================================================================
-
-    # Model parameters (placeholder - will be populated when tab is complete)
-    # config['model_preset'] = widget_dict.get('model_preset', widgets.Widget()).value
-    # config['num_layers'] = widget_dict.get('num_layers', widgets.Widget()).value
-    # ... etc
-
-    # Training parameters (placeholder)
-    # config['n_train'] = widget_dict.get('n_train', widgets.Widget()).value
-    # ... etc
-
-    # Evaluation parameters (placeholder)
-    # config['top_m_values'] = list(widget_dict.get('top_m_values', widgets.Widget()).value)
-    # ... etc
-
-    # Visualization parameters (placeholder)
-    # config['selected_plots'] = list(widget_dict.get('selected_plots', widgets.Widget()).value)
-    # ... etc
-
+    # Key parameters only
+    keys = [
+        'N', 'K', 'M', 'realism_profile', 'physics_backend',
+        'P_tx', 'sigma_h_sq', 'sigma_g_sq',
+        'probe_type', 'probe_category', 'model_preset'
+    ]
+    for k in keys:
+        if k in widget_dict: config[k] = widget_dict[k].value
     return config
 
-
 def print_dashboard_info():
-    """Print information about the dashboard structure."""
+    print("RIS DASHBOARD - PHASE 2 PROFESSIONAL EDITION")
 
-    print("="*70)
-    print("RIS DASHBOARD - CLEAN ARCHITECTURE")
-    print("="*70)
-    print()
-    print("Tab Structure:")
-    print("  1. System - Core parameters (N, K, M, probes)")
-    print("  2. Physics & Realism - Channel sources and impairments")
-    print("  3. Model - Architecture configuration")
-    print("  4. Training - Training hyperparameters")
-    print("  5. Evaluation - Metrics and comparison")
-    print("  6. Visualization - Plot selection and settings")
-    print()
-    print("Components:")
-    print("  - Stack Manager (below tabs)")
-    print("  - Action Buttons (run, save, load)")
-    print("  - Status Display (progress, metrics, logs)")
-    print("  - Results Display (summary, plots, export)")
-    print()
-    print("="*70)
+def render_dashboard(config=None):
+    """Renders the dashboard and returns the UI object."""
+    ui, _ = create_complete_interface()
+    if config:
+        print(f"⚙️ Config Applied: {config.get('realism_profile', 'default')}")
+    return ui
