@@ -20,7 +20,7 @@ from IPython.display import display, clear_output
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from models.model_registry import get_model_architecture
 from dashboard.config_manager import config_to_dict, save_config, load_config, dict_to_widgets
-from dashboard.experiment_runner import run_single_experiment, run_multi_model_comparison, run_multi_seed_experiment
+from src.ris_platform.experiments.runner import run_single_experiment, run_multi_model_comparison, run_multi_seed_experiment
 from dashboard.plots import EXTENDED_PLOT_REGISTRY, set_plot_style
 # === GLOBALS ===
 CURRENT_RESULTS, EXPERIMENT_STACK, STACK_RESULTS = None, [], []
