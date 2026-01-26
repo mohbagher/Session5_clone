@@ -109,14 +109,21 @@ class SphericalWavefront(WavefrontModel):
         # Combined effect
         h_effective = h * phase_bs * path_loss_bs
         g_effective = g * phase_user * path_loss_user
-        
+
         # Compute signal
         reflected = gamma * h_effective
-        
+
+        # --- FIX STARTS HERE ---
         if h.ndim == 1:
-            return np.vdot(g_effective, reflected)
+            # Handle Probe Bank (K, N) vs Single Channel (N,)
+            if reflected.ndim == 2:
+                # Sum across elements (axis 1)
+                return np.sum(np.conj(g_effective) * reflected, axis=1)
+            else:
+                return np.vdot(g_effective, reflected)
         else:
             return np.sum(np.conj(g_effective) * reflected, axis=0)
+        # --- FIX ENDS HERE ---
     
     def compute_rayleigh_distance(
         self,

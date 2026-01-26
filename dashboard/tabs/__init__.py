@@ -17,5 +17,6 @@ __all__ = [
     'create_model_tab',
     'create_training_tab',
     'create_evaluation_tab',
-    'create_visualization_tab'
+    'create_visualization_tab',
+    'tab_ablation'  # <--- NEW EXPORT
 ]
